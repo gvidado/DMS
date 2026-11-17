@@ -1,0 +1,54 @@
+'use strict';
+window.NetworkReplayUI = (() => {
+  names.network = ['网络回放模拟', '从pcapng通过真实UDP套接字发送，由接收端正常监听；检验组播、端口、来源过滤和解码链路。'];
+  const nav = element('button','nav-item');nav.dataset.view='network';nav.append(element('span','nav-icon','⇄'),document.createTextNode('网络回放模拟'));nav.addEventListener('click',()=>navigate('network'));$('accounts-nav').before(nav);
+  const section=element('section','view hidden');section.id='view-network';
+  section.innerHTML=`<section class="panel network-replay-panel"><div class="panel-heading"><div><h2>真实UDP收发模拟</h2><p>发送端读取pcapng，接收端使用“开始监听”。不会直接调用解码器，也不会自动修改接收端组播和白名单。</p></div><span id="network-state" class="status-tag neutral">未选择文件</span></div><div class="section-pad"><div class="inline-note">默认在同一台电脑完成真实UDP收发：先在“监听配置”设置组播、端口和来源白名单并开始监听，再在本页读取pcapng、预检并发送。发送网卡与接收组播网卡请选择同一网卡IP；白名单须允许本机发送IP。发送完成后请核对“接收概览”的实际接收统计。</div><div class="upload-line"><label class="file-field">pcapng网络回放文件<input id="network-file" type="file" accept=".pcapng"></label><button id="network-upload" class="button">读取文件</button><button id="network-upload-cancel" class="button hidden">取消上传</button><button id="network-clear" class="text-button">清除数据源</button></div><p id="network-source" class="muted small-text">尚未选择文件；也可在文件检验完成后设为网络回放数据源。</p><p id="network-upload-progress" class="muted small-text"></p><div class="form-grid network-options"><label>发送环境<select id="network-mode"><option value="local">本机闭环（组播TTL=0，默认）</option><option value="lan">两机局域网发送（真实经过网络）</option></select></label><label>发送网卡IP<select id="network-local"></select><small>这是发送电脑自己的地址，接收端白名单须包含实际发送IP。</small></label><label>来源IP方式<select id="network-source-policy"><option value="actual">使用发送网卡的实际IP</option><option value="original">保留抓包来源IP（必须已属于本机）</option></select><small>不会冒用其他设备IP；保留.111～.114时需在隔离发送机上先配置这些本机地址。</small></label><label>来源端口<select id="network-source-port"><option value="temporary">使用系统分配的临时端口</option><option value="original">保留抓包来源端口</option></select></label><label>筛选抓包目的IP<input id="network-filter-ip" placeholder="224.10.2.24"><small>留空匹配所有目的IP；只发送下方指定目的端口的UDP。</small></label><label>筛选抓包目的端口<input id="network-filter-port" type="number" min="1" max="65535" value="30008"></label><label>改发目的IP（可选）<input id="network-target-ip" placeholder="留空使用抓包中的原目的IP"></label><label>改发目的端口（可选）<input id="network-target-port" type="number" min="0" max="65535" value="0"><small>0表示保留抓包目的端口。</small></label><label>回放倍速<select id="network-speed"><option value="1">1倍</option><option value="2">2倍</option><option value="3">3倍</option><option value="4">4倍</option><option value="5">5倍</option></select><small>按抓包时间间隔发送，播放中可以切换。</small></label></div><div class="import-action-line"><button id="network-analyze" class="button">预检收发计划（不发包）</button><button id="network-start" class="button primary" disabled>开始真实UDP发送</button><button id="network-stop" class="button danger" disabled>停止发送 / 预检</button></div><p id="network-error" class="form-error" role="alert"></p><p id="network-dirty" class="muted small-text"></p><div id="network-summary" class="import-summary"></div><progress id="network-progress" max="100" value="0"></progress><p id="network-bindings" class="muted small-text"></p><div class="table-scroll network-plan"><table class="data-table"><thead><tr><th>抓包原始来源/目的 → 实际发送路线（前64条）</th><th>报文数</th></tr></thead><tbody id="network-flows"></tbody></table></div><p class="muted small-text">SPP载荷逐字节保留，包括原有帧计数、重复帧和错误校验；UDP/IP头由系统生成。不重放不完整报文、IP分片和不支持的链路，预检显示跳过数量。停止发送不会停止接收端监听。</p><button id="network-open-overview" class="button small">查看本机接收概览</button></div></section>`;
+  $('view-accounts').after(section);
+  let info={},interfaces=[],busy=false,uploading=null,dirty=true,initialized=false,generation=0,knownToken='';
+  const fields=['network-mode','network-local','network-source-policy','network-source-port','network-filter-ip','network-filter-port','network-target-ip','network-target-port'];
+  function options(){return {Mode:$('network-mode').value,LocalAddress:$('network-local').value,SourcePolicy:$('network-source-policy').value,PreserveSourcePort:$('network-source-port').value==='original',DestinationFilter:$('network-filter-ip').value.trim(),PortFilter:Number($('network-filter-port').value),DestinationOverride:$('network-target-ip').value.trim(),DestinationPort:Number($('network-target-port').value),Speed:Number($('network-speed').value)};}
+  function fill(o){if(!o)return;$('network-mode').value=o.Mode;$('network-local').value=o.LocalAddress;$('network-source-policy').value=o.SourcePolicy;$('network-source-port').value=o.PreserveSourcePort?'original':'temporary';$('network-filter-ip').value=o.DestinationFilter;$('network-filter-port').value=o.PortFilter;$('network-target-ip').value=o.DestinationOverride;$('network-target-port').value=o.DestinationPort;}
+  function render(s){
+    if(!s)return;info=s.networkReplay||info;
+    const active=['analyzing','sending','stopping'].includes(info.state),labels={empty:'未选择文件',ready:'文件已就绪，尚未预检',analyzing:'正在预检，未发送',prepared:'计划就绪，尚未发送',sending:'正在通过真实UDP发送',completed:'发送完成，请核对接收端',stopped:'已停止发送',failed:'预检或发送失败'};
+    if(info.options&&info.token!==knownToken&&!dirty){fill(info.options);knownToken=info.token;}
+    $('network-state').textContent=labels[info.state]||info.state||'未选择文件';$('network-state').className='status-tag '+(info.state==='failed'?'bad':info.state==='sending'?'warn':'neutral');
+    $('network-source').textContent=info.ready?info.filename+' · '+Math.round(info.size/1024/1024)+'MB':'尚未选择文件；也可复用已检验文件。';
+    for(const id of fields)$(id).disabled=active||busy||!!uploading;
+    $('network-source-port').disabled=active||busy||!!uploading;$('network-upload').disabled=active||busy||!!uploading;$('network-clear').disabled=active||busy||!!uploading||!info.ready;
+    $('network-analyze').disabled=active||busy||!!uploading||!info.ready;$('network-start').disabled=active||busy||!!uploading||!info.canStart||dirty||s.mode==='demo';$('network-stop').disabled=!active||busy;
+    if(document.activeElement!==$('network-speed'))$('network-speed').value=String(info.speed||1);
+    $('network-summary').replaceChildren(element('strong','','已发送 '+number(info.sent)+' 个UDP'),element('span','','预检选中 '+number(info.selected)+' 个'),element('span','','不支持/不完整 '+number(info.unsupported)+' 个'),element('span','','筛除 '+number(info.filtered)+' 个'),element('span','','文件读取 '+number(info.framesRead)+' 帧'),element('span','','源时间 '+Math.round((info.captureElapsedMs||0)/1000)+'秒'));
+    $('network-progress').value=info.progress||0;$('network-bindings').textContent=(info.actualBindings||[]).length?'本次实际发送源：'+info.actualBindings.join('，'):'源端口使用临时端口时，开始发送后显示实际端口。';
+    $('network-dirty').textContent=dirty&&info.ready?'配置尚未预检或已修改，请先预检收发计划。':'发送成功只表示已交给操作系统；以接收端正常监听、SPP统计和告警作为接收依据。';
+    if(info.error)$('network-error').textContent=info.error;
+    const rows=document.createDocumentFragment();for(const flow of info.flows||[]){const row=element('tr');row.append(element('td','mono small-text',flow.route),element('td','mono',number(flow.frames)));rows.append(row);}$('network-flows').replaceChildren(rows);
+  }
+  async function load(){
+    const epoch=generation;try{const [data,nics]=await Promise.all([api('network-replay/state'),api('network-replay/interfaces')]);if(epoch!==generation)return;info=data;interfaces=nics;
+      const selected=$('network-local').value;$('network-local').replaceChildren(...nics.map(n=>new Option(n.ip+' · '+n.name+(n.loopback?'（回环）':''),n.ip)));
+      if(selected&&nics.some(n=>n.ip===selected))$('network-local').value=selected;else $('network-local').value=nics.some(n=>n.ip===app.config?.MulticastInterface)?app.config.MulticastInterface:nics.find(n=>!n.loopback)?.ip||nics[0]?.ip||'';
+      if(!initialized){if(data.options){fill(data.options);dirty=false;knownToken=data.token;}else{$('network-filter-ip').value=app.config?.MulticastGroup||'224.10.2.24';$('network-filter-port').value=app.config?.UdpPort||30008;}initialized=true;}
+      if(app.state){app.state.networkReplay=data;render(app.state);}
+    }catch(e){$('network-error').textContent=e.message;}
+  }
+  for(const id of fields)$(id).addEventListener('change',()=>{dirty=true;$('network-error').textContent='';render(app.state);});
+  async function action(path,body){busy=true;render(app.state);try{info=await api('network-replay/'+path,body);if(app.state)app.state.networkReplay=info;return true;}catch(e){$('network-error').textContent=e.message;return false;}finally{busy=false;render(app.state);}}
+  $('network-analyze').addEventListener('click',async()=>{if(await action('analyze',options())){dirty=false;knownToken='';$('network-error').textContent='';}});
+  $('network-start').addEventListener('click',()=>action('start',{token:info.token}));$('network-stop').addEventListener('click',()=>action('stop',{}));
+  $('network-clear').addEventListener('click',async()=>{if(await action('clear',{})){dirty=true;$('network-error').textContent='';}});
+  $('network-speed').addEventListener('change',()=>action('speed',{speed:Number($('network-speed').value)}));
+  $('network-open-overview').addEventListener('click',()=>navigate('overview'));
+  $('network-upload').addEventListener('click',()=>{
+    const file=$('network-file').files[0];if(!file){$('network-error').textContent='请选择pcapng文件';return;}const epoch=generation,xhr=new XMLHttpRequest();uploading=xhr;render(app.state);$('network-error').textContent='';$('network-upload-progress').textContent='正在上传…';$('network-upload-cancel').classList.remove('hidden');
+    xhr.open('POST','/api/network-replay/upload?filename='+encodeURIComponent(file.name));xhr.setRequestHeader('Content-Type','application/octet-stream');xhr.setRequestHeader('X-CSRF-Token',app.user.csrf);
+    xhr.upload.onprogress=e=>{if(epoch===generation)$('network-upload-progress').textContent='已上传 '+Math.round(e.loaded/1024/1024)+'MB'+(e.lengthComputable?' · '+Math.round(e.loaded*100/e.total)+'%':'');};
+    const finish=()=>{uploading=null;$('network-upload-cancel').classList.add('hidden');render(app.state);};
+    xhr.onload=()=>{if(epoch!==generation)return;try{const data=JSON.parse(xhr.responseText);if(xhr.status!==200)throw new Error(data.error||'读取失败');info=data;app.state.networkReplay=data;dirty=true;$('network-upload-progress').textContent='文件已就绪，请预检收发计划。';}catch(e){$('network-error').textContent=e.message;}finally{finish();}};
+    xhr.onerror=()=>{if(epoch===generation){$('network-error').textContent='文件上传失败';finish();}};xhr.onabort=()=>{if(epoch===generation){$('network-upload-progress').textContent='上传已取消';finish();}};xhr.send(file);
+  });
+  $('network-upload-cancel').addEventListener('click',()=>uploading?.abort());
+  function reset(){generation++;uploading?.abort();uploading=null;busy=false;dirty=true;initialized=false;knownToken='';info={};$('network-error').textContent='';$('network-upload-progress').textContent='';$('network-flows').replaceChildren();}
+  return {load,render,reset};
+})();

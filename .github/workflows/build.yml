@@ -1,0 +1,16 @@
+name: Windows build and protocol self-test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build the Windows application and run protocol self-tests
+        shell: powershell
+        run: ./build.ps1

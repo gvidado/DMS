@@ -1,0 +1,32 @@
+# Deployment and personal data
+/config/
+/data/
+/logs/
+/test-output/
+/备份/
+/提供材料/
+/database/
+/native/postgresql/
+*.bak
+*.tmp
+*.previous.exe
+*.pcap
+*.pcapng
+*.bin
+*.jsonl
+*.hst.gz
+*.key
+*.pem
+.env
+.env.*
+__pycache__/
+*.pyc
+node_modules/
+dsh-plugin/dist/
+
+# Build and release artifacts belong in GitHub Releases
+*.exe
+*.zip
+*.tgz
+/release-assets/
+/.publish/

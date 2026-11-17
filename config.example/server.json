@@ -1,0 +1,39 @@
+{
+  "WebPort": 8080,
+  "WebHost": "+",
+  "BindAddress": "0.0.0.0",
+  "UdpPort": 30008,
+  "MulticastGroup": "224.10.2.24",
+  "MulticastInterface": "",
+  "SourceIPs": [
+    "192.168.1.111",
+    "192.168.1.112",
+    "192.168.1.113"
+  ],
+  "FramePeriodMs": 160,
+  "DataTimeoutMs": 16000,
+  "EnablePacketTimeoutAlarm": false,
+  "OfflineFrames": 100,
+  "LossAlarmFrames": 20,
+  "EnableLossAlarm": false,
+  "ExpectedDatagramLength": 1030,
+  "SppOffset": -1,
+  "StrictLength": true,
+  "AllowedApids": [
+    8,
+    9,
+    10
+  ],
+  "ParameterApid": 8,
+  "PayloadOffset": 16,
+  "SourceAddress": 4100,
+  "ServiceType": 3,
+  "ServiceSubtype": 25,
+  "ChecksumMode": "fletcher16",
+  "ChecksumStart": 0,
+  "MappingConfirmed": false,
+  "Profile": "全程",
+  "BitOrder": "msb0",
+  "ByteOrder": "big",
+  "CrossByteOrder": "firstMsb"
+}

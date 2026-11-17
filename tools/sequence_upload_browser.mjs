@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';import {resolve,dirname,join} from 'node:path';import {fileURLToPath} from 'node:url';
+import {cp,rm,writeFile,mkdtemp} from 'node:fs/promises';import {spawn} from 'node:child_process';import {randomBytes} from 'node:crypto';import net from 'node:net';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),require=createRequire(join(resolve(process.argv[2]),'package.json')),{chromium}=require('playwright');
+const temporary=await mkdtemp(join(root,'test-output','sequence-upload-browser-'));await cp(join(root,'config'),join(temporary,'config'),{recursive:true});await cp(join(root,'web'),join(temporary,'web'),{recursive:true});
+for(const name of ['decoder.json','continuous-rules.json','tc-bindings.json','observed-commands.json','sequences.json'])await rm(join(temporary,'config',name),{force:true});
+const commands=[{Number:1,Name:'指令甲',DestinationIP:'192.168.1.113',DestinationIPs:['192.168.1.113','192.168.1.111'],PayloadHex:'00 AA',Length:2},{Number:2,Name:'指令乙',DestinationIP:'192.168.1.113',PayloadHex:'00 BB',Length:2},{Number:3,Name:'未分类',DestinationIP:'127.0.0.2',PayloadHex:'00 CC',Length:2}];
+await writeFile(join(temporary,'config','observed-commands.json'),JSON.stringify({SchemaVersion:1,SourceIP:'127.0.0.1',IdentityRule:'udp-payload',NextNumber:4,Commands:commands}));
+await writeFile(join(temporary,'config','command-send.json'),JSON.stringify({SchemaVersion:1,SourceIP:'127.0.0.1',Routes:[{DestinationIP:'192.168.1.113',SourcePort:53334,DestinationPort:31000}]}));
+const portServer=net.createServer();await new Promise(r=>portServer.listen(0,'127.0.0.1',r));const port=portServer.address().port;await new Promise(r=>portServer.close(r));
+const server=spawn(resolve(process.argv[3]),['--local','--root',temporary,'--web-port',String(port)],{windowsHide:true,stdio:'ignore'}),base='http://127.0.0.1:'+port,password=randomBytes(18).toString('hex');let browser;
+const checks=[];function check(value,label){assert.ok(value,label);checks.push(label);console.log('PASS',label);}
+async function until(fn,label,timeout=12000){const end=Date.now()+timeout;while(Date.now()<end){if(await fn())return;await new Promise(r=>setTimeout(r,70));}throw new Error('Timed out: '+label);}
+try{
+ await until(async()=>{try{return(await fetch(base+'/api/auth/me')).ok;}catch{return false;}},'server');
+ browser=await chromium.launch({headless:true,channel:'msedge'});const context=await browser.newContext(),page=await context.newPage();
+ await context.request.post(base+'/api/auth/setup',{data:{username:'uploadqa',name:'Upload QA',password}});await page.goto(base+'/?view=sequence-config');await page.locator('#login-username').fill('uploadqa');await page.locator('#login-password').fill(password);await page.locator('#login-submit').click();await page.locator('#workspace').waitFor({state:'visible'});
+ await page.locator('#sequence-read').click();check((await page.locator('#sequence-import-error').textContent()).includes('请选择'),'missing file has a persistent readable error');
+ const original=resolve(process.argv[4]);await page.locator('#sequence-file').setInputFiles(original);await page.locator('#sequence-read').click();await until(()=>page.locator('#sequence-import-error').textContent().then(t=>t.includes('配置错误')),'real workbook');
+ const detail=await page.locator('#sequence-import-error').textContent();check(detail.includes('默认分段')&&detail.includes('第5行')&&detail.includes('第7行')&&detail.includes('第8行')&&detail.includes('=='),'actual user workbook reads and lists sheet, row and actionable syntax errors');
+ check(await page.locator('#sequence-preview-rows tr').count()===7&&await page.locator('#sequence-apply').isDisabled(),'invalid sheets retain their seven original rows for review and cannot be saved');
+ const upload=async()=>{await page.locator('#sequence-file').setInputFiles(original);await page.locator('#sequence-read').click();await until(()=>page.locator('#sequence-read').isEnabled(),'request finished');return page.locator('#sequence-import-error').textContent();};
+ await page.route('**/api/sequence/preview?**',route=>route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({error:'未找到完整七列表头'})}));check((await upload()).includes('未找到完整七列表头'),'server-provided import failure reason stays visible next to import controls');await page.unroute('**/api/sequence/preview?**');
+ await page.route('**/api/sequence/preview?**',route=>route.fulfill({status:502,contentType:'text/html',body:'gateway error'}));check((await upload()).includes('HTTP 502'),'non-JSON or interrupted response identifies its HTTP status');await page.unroute('**/api/sequence/preview?**');
+ await page.route('**/api/sequence/preview?**',route=>route.abort('failed'));check((await upload()).includes('服务器仍可访问'),'failed upload with a reachable server gives a specific transport message');
+ await page.route('**/api/auth/me',route=>route.abort('connectionrefused'));check((await upload()).includes('无法连接服务器'),'an unavailable server is distinguished from invalid workbook content');await page.unroute('**/api/auth/me');await page.unroute('**/api/sequence/preview?**');
+ await page.evaluate(()=>{window.originalArrayBuffer=File.prototype.arrayBuffer;File.prototype.arrayBuffer=function(){return Promise.reject(new DOMException('locked','NotReadableError'));};});check((await upload()).includes('本地文件读取失败'),'unreadable or changed local file gives a reselect-file instruction');await page.evaluate(()=>{File.prototype.arrayBuffer=window.originalArrayBuffer;});
+ await upload();check((await page.locator('#sequence-import-error').textContent()).includes('配置错误'),'a subsequent read replaces the prior network error with current validation results');
+ const state=await page.evaluate(()=>api('sequence/config'));check(state.definitions.length===0,'previews and simulated failures never save or execute a sequence');
+ console.log('All '+checks.length+' sequence upload browser checks passed. No commands sent.');
+}finally{await browser?.close();server.kill();await new Promise(r=>server.exitCode!==null?r():server.once('exit',r));const absolute=resolve(temporary);assert.ok(absolute.startsWith(join(root,'test-output')+'\\'));await rm(temporary,{recursive:true,force:true});}

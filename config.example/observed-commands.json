@@ -1,0 +1,13 @@
+{
+  "SchemaVersion": 1,
+  "InterfaceWidthRule": 4,
+  "SourceIP": "192.168.1.16",
+  "IdentityRule": "udp-payload",
+  "NextNumber": 1,
+  "Commands": [],
+  "NextCategoryNumbers": {
+    "BC": 1,
+    "PSS": 1,
+    "KC": 1
+  }
+}

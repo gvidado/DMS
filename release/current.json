@@ -1,0 +1,26 @@
+{
+  "version": "0.10.26",
+  "tag": "v0.10.26",
+  "assets": [
+    {
+      "name": "DMS-v0.10.26-windows-offline.zip",
+      "size": 609482,
+      "sha256": "d9e0330c97a1728b2891713c470c3d42dc31c62d19117a512df80d1bc0f4a94a"
+    },
+    {
+      "name": "DMS-v0.10.26-windows-upgrade.zip",
+      "size": 605200,
+      "sha256": "b25d77717a94a533e719287fa8e75a6dc5844af6eaa2aafc882b55b717c961f5"
+    },
+    {
+      "name": "DMS-v0.10.26-user-manual.docx",
+      "size": 666063,
+      "sha256": "e767948ee86cba9ebe306f95f97952b9c95e9d62801bf64fa02e479c4bc0b7c9"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "size": 297,
+      "sha256": "f322b23a53dca853d71a8a675641cc5444f0f637f3e60e51cf40cf0cfb2d40e2"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {resolve,dirname,join} from 'node:path';import {fileURLToPath} from 'node:url';
+import {cp,rm,mkdtemp} from 'node:fs/promises';import {tmpdir} from 'node:os';import {spawn} from 'node:child_process';import {randomBytes} from 'node:crypto';import net from 'node:net';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),require=createRequire(join(resolve(process.argv[2]),'package.json')),{chromium}=require('playwright'),temporary=await mkdtemp(join(tmpdir(),'packet-timeout-ui-'));
+await cp(join(root,'config'),join(temporary,'config'),{recursive:true});await cp(join(root,'web'),join(temporary,'web'),{recursive:true});
+const listener=net.createServer();await new Promise(r=>listener.listen(0,'127.0.0.1',r));const port=listener.address().port;await new Promise(r=>listener.close(r));
+const base='http://127.0.0.1:'+port,server=spawn(resolve(process.argv[3]),['--local','--root',temporary,'--web-port',String(port)],{windowsHide:true});let browser;
+try{
+ for(let i=0;;i++){try{await fetch(base+'/api/auth/me');break;}catch(e){if(i>60)throw e;await new Promise(r=>setTimeout(r,100));}}
+ browser=await chromium.launch({headless:true,channel:'msedge'});const page=await browser.newPage({viewport:{width:1440,height:1100}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(base);
+ await page.locator('#login-username').fill('packet_timeout_ui');await page.locator('#login-name').fill('SPP超时检查');await page.locator('#login-password').fill(randomBytes(16).toString('hex'));await page.locator('#login-submit').click();await page.locator('#workspace').waitFor({state:'visible'});
+ await page.locator('.home-entry[data-open-view="settings"]').click();const option=page.locator('#cfg-packet-timeout-alarm');assert.equal(await option.isChecked(),false);await option.check();await page.locator('#cfg-timeout').fill('1250');
+ const saved=page.waitForResponse(r=>r.url().endsWith('/api/config') && r.request().method()==='POST');await page.locator('#settings-save').click();assert.equal((await saved).status(),200);
+ await page.reload();await page.locator('#workspace').waitFor({state:'visible'});await page.locator('.home-entry[data-open-view="settings"]').click();await page.waitForFunction(()=>document.querySelector('#cfg-packet-timeout-alarm').checked);assert.equal(await page.locator('#cfg-timeout').inputValue(),'1250');
+ await page.screenshot({path:join(root,'test-output','packet-timeout-settings.png'),fullPage:true});
+ await page.locator('.nav-item[data-view="overview"]').click();await page.waitForFunction(()=>document.querySelectorAll('#packet-stat-rows [data-field="health"]').length>0);assert.match(await page.locator('#packet-stat-rows [data-field="health"]').first().innerText(),/未监测 \/ 已停止/);
+ await page.locator('.nav-item[data-view="settings"]').click();await option.uncheck();const off=page.waitForResponse(r=>r.url().endsWith('/api/config') && r.request().method()==='POST');await page.locator('#settings-save').click();assert.equal((await off).status(),200);await page.locator('.nav-item[data-view="overview"]').click();await page.waitForFunction(()=>document.querySelector('#packet-stat-rows [data-field="health"]').textContent.includes('未开启'));assert.deepEqual(errors,[]);
+ console.log('PASS unchecked default, checkbox save, timeout value and reload persistence, packet health column and disabled state in browser');
+}finally{await browser?.close();server.kill();await new Promise(r=>server.exitCode!==null?r():server.once('exit',r));await rm(temporary,{recursive:true,force:true});}
