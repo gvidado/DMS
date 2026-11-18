@@ -42,7 +42,7 @@ namespace TelemetryMonitor
                 {
                     server.Start();
                     int effectivePort = port > 0 ? port : JsonFile.Load<Settings>(Path.Combine(root, "config", "server.json")).WebPort;
-                    Console.WriteLine("Telemetry Monitor server v0.10.31");
+                    Console.WriteLine("Telemetry Monitor server v0.10.32");
                     Console.WriteLine("Local browser: http://localhost:" + effectivePort);
                     Console.WriteLine(local ? "Access: local preview only." : "LAN browser: http://<SERVER-IP>:" + effectivePort);
                     Console.WriteLine("On first use, open the local browser to create an administrator account.");

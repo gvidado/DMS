@@ -16,6 +16,17 @@ try{
   await page.locator('#login-submit').click();
   const configSelect=page.locator('#sequence-config-select');
   const group=page.locator('#sequence-preview-group');
+  const newField=page.locator('#sequence-import-group');
+  const oldField=page.locator('#sequence-import-existing-group');
+  await oldField.waitFor({state:'visible'});
+  const desktop=[await newField.boundingBox(),await oldField.boundingBox()];
+  assert.equal(desktop[0].y,desktop[1].y);
+  assert.equal(desktop[0].height,desktop[1].height);
+  await page.setViewportSize({width:420,height:850});
+  const mobile=[await newField.boundingBox(),await oldField.boundingBox()];
+  assert.equal(mobile[0].x,mobile[1].x);
+  assert(mobile[1].y>mobile[0].y+mobile[0].height);
+  await page.setViewportSize({width:1280,height:720});
   const groupLabel=async id=>configSelect.locator('option[value="'+id+'"]').evaluate(option=>option.parentElement.label||'');
   await configSelect.locator('option[value="'+input.oldId+'"]').waitFor({state:'attached'});
   await page.locator('#sequence-file').setInputFiles(input.workbook);
@@ -25,11 +36,16 @@ try{
   await sheets.nth(2).waitFor();
   const first=await sheets.nth(0).locator('input').inputValue(),second=await sheets.nth(1).locator('input').inputValue();
   assert.equal(await group.inputValue(),'批次一');
+  await page.locator('#sequence-import-group').fill('预览后改的新组');
+  assert.equal(await group.inputValue(),'预览后改的新组');
+  assert.match(await sheets.nth(0).textContent(),/预览后改的新组/);
   await sheets.nth(2).locator('input').uncheck();
   await sheets.nth(2).locator('button').click();
   await group.fill('不保存该组');
   await sheets.nth(1).locator('button').click();
   await group.fill('专项二');
+  await page.locator('#sequence-import-group').fill('批次一');
+  assert.equal(await group.inputValue(),'专项二');
   await page.locator('#sequence-preview-name').fill('乙序列');
   await page.locator('#sequence-recheck').click();
   await page.waitForFunction(()=>!document.querySelector('#sequence-apply').disabled);
@@ -59,9 +75,12 @@ try{
 
   await page.evaluate(()=>navigate('sequence-config',true));
   await page.locator('#sequence-file').setInputFiles(input.batch);
-  await page.locator('#sequence-import-group').fill('批量默认');
+  await page.locator('#sequence-import-existing-group').selectOption('批次一');
+  assert.equal(await page.locator('#sequence-import-group').inputValue(),'批次一');
   await page.locator('#sequence-read').click();
   await sheets.nth(2).waitFor();
+  assert.match(await sheets.nth(0).textContent(),/批次一/);
+  await page.locator('#sequence-import-group').fill('批量默认');
   assert.match(await page.locator('#sequence-import-progress').textContent(),/已读取 2 \/ 3/);
   assert.deepEqual(await page.locator('.sequence-import-source').allTextContents(),['批量甲.xlsx','批量乙.xlsx']);
   assert.match(await page.locator('#sequence-import-error').textContent(),/无法读取\.xlsx/);

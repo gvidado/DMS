@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -5,6 +6,8 @@ namespace TelemetryMonitor
 {
     public sealed class LivePacketCounters
     {
+        public DateTime LastMatch,LastValidFrame,LastParameterUpdate;
+        public string LastOutcome="";
         public long Received, Accepted, Duplicates, Invalid, OutOfOrder;
         public int LastSequence=-1,LastResyncFrom=-1,LastResyncTo=-1;
         public System.DateTime LastResyncAt=System.DateTime.MinValue;
@@ -30,6 +33,9 @@ namespace TelemetryMonitor
                 ServiceSubtype = Config.ServiceSubtype, MappingConfirmed = apid == Config.ParameterApid && Config.MappingConfirmed }).ToList();
         }
 
+        private static string PacketDiagnosticTime(DateTime value)
+        {return value==DateTime.MinValue?"":BeijingTime.Format(value,"HH:mm:ss.fff");}
+
         private List<object> PacketStatisticsSnapshot()
         {
             IEnumerable<PacketDefinition> definitions = MonitoredPackets();
@@ -44,6 +50,8 @@ namespace TelemetryMonitor
                     outerSourceId=definition.OuterSourceId,telemetryNamespace=definition.TelemetryNamespace,sourceAddress = definition.SourceAddress, serviceType = definition.ServiceType, serviceSubtype = definition.ServiceSubtype,
                     decodingEnabled = definition.MappingConfirmed, status = status,
                     received = counters.Received, accepted = counters.Accepted, duplicates = counters.Duplicates,
+                    lastMatch = PacketDiagnosticTime(counters.LastMatch), lastValidFrame = PacketDiagnosticTime(counters.LastValidFrame),
+                    lastParameterUpdate = PacketDiagnosticTime(counters.LastParameterUpdate), lastOutcome = counters.LastOutcome,
                     invalid = counters.Invalid, outOfOrder = counters.OutOfOrder,lastSequence=counters.LastSequence,
                     lastResyncFrom=counters.LastResyncFrom,lastResyncTo=counters.LastResyncTo,
                     lastResyncAt=counters.LastResyncAt==System.DateTime.MinValue?"":counters.LastResyncAt.ToString("yyyy-MM-dd HH:mm:ss.fff"),health=PacketHealthSnapshot(definition) });

@@ -18,9 +18,9 @@ namespace TelemetryMonitor
                     string revision=Convert.ToString(config["revision"]);
                     if(Text(body,"revision")!=revision)throw new InvalidOperationException("序列配置已变化，请重新载入再编辑");
                     var definition=monitor.SequenceDefinition(Text(body,"id"));
-                    foreach(string key in sequencePreviews.Where(p=>p.Value.Username==session.Username || (DateTime.UtcNow-p.Value.Created).TotalMinutes>10).Select(p=>p.Key).ToArray())sequencePreviews.Remove(key);
+                    PruneSequencePreviews();
                     if(sequencePreviews.Count>=16)throw new InvalidOperationException("当前编辑预览较多，请稍后再试");
-                    var preview=new SequenceImportPreview{Token=Auth.RandomToken(),Username=session.Username,Revision=revision,EditId=definition.Id,Created=DateTime.UtcNow,Timeout=Convert.ToDouble(config["defaultTimeout"]),Definitions=new List<SequenceDefinition>{definition}};
+                    var preview=new SequenceImportPreview{Token=Auth.RandomToken(),OwnerSession=session.Token,Revision=revision,EditId=definition.Id,Created=DateTime.UtcNow,Timeout=Convert.ToDouble(config["defaultTimeout"]),Definitions=new List<SequenceDefinition>{definition}};
                     sequencePreviews[preview.Token]=preview;
                     Json(ctx.Response,new{token=preview.Token,editId=preview.EditId,definitions=new[]{monitor.SequenceValidate(definition,preview.Timeout)},conversion=preview.Conversion},200);
                 }
@@ -32,7 +32,7 @@ namespace TelemetryMonitor
                 lock(commandGate)
                 {
                     SequenceImportPreview preview;
-                    if(!sequencePreviews.TryGetValue(Text(body,"token"),out preview) || preview.Username!=session.Username || (DateTime.UtcNow-preview.Created).TotalMinutes>10)throw new ArgumentException("编辑预览已过期，请重新选择已保存序列");
+                    if(!sequencePreviews.TryGetValue(Text(body,"token"),out preview) || preview.OwnerSession!=session.Token || (DateTime.UtcNow-preview.Created).TotalMinutes>10)throw new ArgumentException("编辑预览已过期，请重新选择已保存序列");
                     if(String.IsNullOrEmpty(preview.EditId) || preview.Definitions.Count!=1 || preview.Definitions[0].Id!=preview.EditId)throw new ArgumentException("请选择已入库序列进行修改");
                     object group;
                     if(body.TryGetValue("group",out group) && !(group is string))throw new ArgumentException("序列分组名称无效");
@@ -51,7 +51,7 @@ namespace TelemetryMonitor
             lock(Gate)
             {
                 EnsureSequenceIdle();if(sequenceStorageError.Length>0)throw new InvalidOperationException(sequenceStorageError);
-                if(revision!=sequenceConfiguration.Revision)throw new InvalidOperationException("序列配置已被修改，请重新载入后编辑，避免覆盖他人修改");
+                if(revision!=sequenceConfiguration.Revision)throw new InvalidOperationException("序列配置已被其他操作修改。当前预览仍保留，可先复制修改内容，再重新载入最新配置。");
                 var copy=SequenceClone(sequenceConfiguration);var definition=copy.Sequences.FirstOrDefault(d=>d.Id==edited.Id);
                 if(definition==null)throw new ArgumentException("序列已不存在");
                 string name=(edited.Name??"").Trim();

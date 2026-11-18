@@ -64,14 +64,85 @@ namespace TelemetryMonitor
         }
         private void SequenceRecordRow(SequenceStepRun row)
         {if(row.Recorded)return;SequenceAudit("步骤结果",row,row.Status,row.Reason);row.Recorded=true;}
-        internal object SequenceHistoryPage(int page,string runId,string search="",string mode="",string result="all")
+        internal object SequenceHistoryPage(int page,string runId,string search="",string mode="",string result="all",string knownRevision="")
         {
             if(page<1 || page>10000)throw new ArgumentException("历史页码须为1至10000");
-            CheckSequenceHistoryMode(mode);CheckSequenceResultFilter(result);var plan=UnifiedPlan();var incidents=SequenceIncidentIndex(plan);var tail=new Queue<SequenceHistoryEvent>();int total=0,retain=page*50;
-            var matched=MatchingSequenceRuns(search);
-            foreach(var entry in ReadSequenceHistory()){if((mode.Length>0 && entry.Mode!=mode) || (runId.Length>0 && entry.RunId!=runId) || (matched!=null && !matched.Contains(entry.RunId)) || !SequenceResultMatches(entry,result,incidents))continue;total++;tail.Enqueue(entry);while(tail.Count>retain)tail.Dequeue();}
-            page=Math.Min(page,Math.Max(1,(total+49)/50));
-            return new{page,pages=Math.Max(1,(total+49)/50),total,error=String.Join("；",new[]{sequenceHistoryError,plan.Error}.Where(s=>!String.IsNullOrEmpty(s))),rows=tail.Reverse().Skip((page-1)*50).Take(50).Select(e=>SequenceHistoryResponse(e,plan,incidents)).ToArray()};
+            CheckSequenceHistoryMode(mode);
+            CheckSequenceResultFilter(result);
+            search = SequenceRunSearchText(search);
+
+            string error = String.Join("；",new[]{sequenceHistoryError,unifiedReleaseError}.Where(e=>!String.IsNullOrEmpty(e)));
+            var releaseJournal = unifiedReleases;
+            long releaseRevision = releaseJournal == null ? 0 : releaseJournal.Revision;
+            int total;
+            string revision;
+            SequenceHistoryLocation[] locations;
+            lock (sequenceHistoryIndexGate)
+            {
+                var index = UpdateSequenceHistoryIndex();
+                List<SequenceHistoryLocation> source;
+                if (runId.Length > 0)
+                {
+                    if (!index.Runs.TryGetValue(runId, out source)) source = new List<SequenceHistoryLocation>();
+                }
+                else
+                {
+                    source = mode == "execute" ? index.Execute : mode == "judge" ? index.Judge : index.All;
+                }
+                long through = source.Count == 0 ? 0 : source[source.Count - 1].Id;
+                revision = index.Generation.ToString("N") + "-" + through + "-" + releaseRevision + "-" + alarms.UnifiedRevision;
+                if (error.Length == 0 && String.Equals(knownRevision, revision, StringComparison.Ordinal))
+                    return new { unchanged = true, revision };
+
+                bool filtered = search.Length > 0 || result != "all" || (runId.Length > 0 && mode.Length > 0);
+                total = source.Count;
+                if (filtered)
+                {
+                    if (result != "all" && runId.Length == 0) source = index.Abnormal;
+                    locations = source.ToArray();
+                }
+                else
+                {
+                    page = Math.Min(page, Math.Max(1,(total+49)/50));
+                    int end = total - (page-1)*50;
+                    int start = Math.Max(0,end-50);
+                    locations = source.GetRange(start, end-start).ToArray();
+                    Array.Reverse(locations);
+                }
+            }
+
+            UnifiedAbnormalPlan plan = null;
+            Dictionary<string, UnifiedAbnormalRecord> incidents = null;
+            if (result == "pending" || result == "released")
+            {
+                plan = UnifiedPlan();
+                incidents = SequenceIncidentIndex(plan);
+            }
+            var entries = ReadHistoryLocations(locations);
+            if (search.Length > 0 || result != "all" || (runId.Length > 0 && mode.Length > 0))
+            {
+                var matched = MatchingSequenceRuns(search);
+                var tail = new Queue<SequenceHistoryEvent>();
+                total = 0;
+                foreach (var entry in entries)
+                {
+                    if ((mode.Length > 0 && entry.Mode != mode) || (matched != null && !matched.Contains(entry.RunId))) continue;
+                    if (!SequenceResultMatches(entry, result, incidents)) continue;
+                    total++;
+                    tail.Enqueue(entry);
+                    if (tail.Count > page*50) tail.Dequeue();
+                }
+                page = Math.Min(page, Math.Max(1, (total+49)/50));
+                entries = tail.Reverse().Skip((page-1)*50).Take(50);
+            }
+            var visible = entries.ToArray();
+            if (plan == null && visible.Any(entry => entry.Event == "异常"))
+            {
+                plan = UnifiedPlan();
+                incidents = SequenceIncidentIndex(plan);
+            }
+            return new { page, pages=Math.Max(1,(total+49)/50), total, error=plan==null?error:plan.Error, revision,
+                rows=visible.Select(entry=>SequenceHistoryResponse(entry,plan,incidents)).ToArray() };
         }
         internal void ExportSequenceHistory(TextWriter writer,string runId,string search="",string mode="",string result="all")
         {CheckSequenceHistoryMode(mode);CheckSequenceResultFilter(result);var matched=MatchingSequenceRuns(search);var incidents=SequenceIncidentIndex(UnifiedPlan());WriteSequenceHistoryCsv(writer,ReadSequenceHistory().Where(e=>(mode.Length==0||e.Mode==mode) && (runId.Length==0 || e.RunId==runId) && (matched==null || matched.Contains(e.RunId)) && SequenceResultMatches(e,result,incidents)));}

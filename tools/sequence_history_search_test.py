@@ -38,6 +38,8 @@ def main():
             check(query('runs',search='xlp0001')['total']==2,'code lookup is case-insensitive and returns each execution of the code')
             check(query('history',search='同名试验')['total']==6 and len(exported(search='同名试验'))==6,'name filtering includes all events of matching runs even when individual events lack a name/code')
             run=same['rows'][0]['RunId'];history=query('history',search='XLP0001',runId=run);check(history['total']==3 and all(e['RunId']==run for e in history['rows']),'selecting an individual run filters its complete step and lifecycle history')
+            same_query = query('history', runId=run, search='XLP0001', since=history['revision'])
+            check(same_query.get('unchanged') and 'rows' not in same_query,'unchanged history returns a revision without resending rows')
             csvrows=exported(search='XLP0001',runId=run);check(len(csvrows)==3 and all(e['实际时间']==same['rows'][0]['StartedAt'] for e in csvrows),'CSV export follows the selected run and query filter')
             raw=c.opener.open(c.base+'/api/sequence/export.csv?'+urllib.parse.urlencode(dict(runId=run))).read();table=list(csv.reader(io.StringIO(raw.decode('utf-8-sig'))))
             check(raw.startswith(b'\xef\xbb\xbf') and table[0]==EXPORT_COLUMNS and all(len(r)==11 for r in table),'CSV contains exactly the eleven requested columns in order, with Excel-compatible UTF-8 BOM')
@@ -50,6 +52,8 @@ def main():
             check(query('runs',search='旧版')['total']==1 and query('history',search='旧版')['total']==3,'legacy records without sequence codes remain searchable by name')
             with path.open('a',encoding='utf-8') as stream:
                 for event in fixture_events(1):event['RunId']='f'*32;event['Sequence']='新追加运行';event['Mode']='execute';event['Code']='XLZ0001';stream.write(json.dumps(event,ensure_ascii=False)+'\n')
+            check(query('history',runId=run,search='XLP0001',since=history['revision']).get('unchanged'),
+                  'appending a separate run does not redraw the selected run')
             check(query('runs',search='新追加运行')['total']==1 and query('runs')['total']==64,'run index refreshes when the history file grows')
             check(len(exported(mode='execute'))==3 and all(e['模式']=='序列执行' and e['工作名称']=='新追加运行' for e in exported(mode='execute')),'execution export preserves mode filtering in the concise layout')
             c.call('/api/sequence/runs?search='+('a'*513),expected=400);check(True,'oversized searches return a clear validation error')

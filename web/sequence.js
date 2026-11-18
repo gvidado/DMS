@@ -4,10 +4,12 @@ window.SequenceUI=(()=>{
   names['sequence-run']=['序列运行','从启动页面创建任务，每次启动在独立页签内显示运行情况。'];
   names['sequence-execute']=['序列执行','主动发送指令；CALL可启动独立判读，执行继续。'];
   const configView=element('section','view hidden');configView.id='view-sequence-config';
-  configView.innerHTML=`<section class="panel"><div class="panel-heading"><div><h2>序列配置与Excel导入</h2><p>序列执行主动发送指令；序列判读仅监视。并行段内部均只监视、不主动发送。</p></div><button class="button" id="sequence-go-run">序列运行</button></div><div class="section-pad"><div class="sequence-form-grid"><label>已保存序列<select id="sequence-config-select"><option value="">新建导入</option></select></label><label>运行模式<select id="sequence-mode"><option value="judge">序列判读 · 仅监视</option><option value="execute">序列执行 · 主动发送</option></select></label><label>统一默认超时（秒）<input id="sequence-timeout" type="number" min="0.001" max="604800" step="any" value="30"></label><label>参数来源<select id="sequence-source"><option value="">按SPP来源自动绑定</option></select></label></div><p class="muted small-text" id="sequence-mode-hint"></p><div class="rule-toolbar"><button id="sequence-settings-save" class="button">保存运行设置</button><button id="sequence-delete" class="button danger">删除所选序列</button><button id="sequence-reload" class="button">重新载入</button></div><p class="error-text" id="sequence-config-error"></p><hr class="sequence-divider"><div class="rule-toolbar"><input id="sequence-file" type="file" accept=".xlsx"><select id="sequence-import-policy" aria-label="导入方式"><option value="add">添加序列</option><option value="replace">替换全部序列</option></select><button id="sequence-read" class="button">读取Excel预览</button><button id="sequence-convert" class="button">小工具：读取并转换指令</button><button id="sequence-convert-export" class="button" disabled>导出转换结果Excel</button><button id="sequence-apply" class="button primary" disabled>保存勾选工作表</button></div><p class="muted small-text">支持标准七列A～G；新十一列表读取A关键字、B测试工作内容、C指令、D判读、F标志、G期望执行时间、H超时时间，忽略E/I/J/K。预览与转换导出统一为原七列格式。判据可直接写TME.参数代号或TMB.参数代号，省略.value（兼容旧写法）；只取当前工程值，支持与 && / AND、或 || / OR、非 ! / NOT 和括号，例如 TME.A1 &gt; 0 &amp;&amp; INENUM(TMB.A2)。期望执行时间可填数字、T0:n或F:n，例如F:2为本序列开始后2秒。执行序列可在任意步骤以CALL启动XLP判读序列，随后继续执行；判读在独立页内标签运行。相同模式的CALL仍为末尾跳转。指令列填写目标序列号，目标独立计时并重新建立T0。</p><p id="sequence-import-error" class="form-error" role="alert" style="white-space:pre-wrap"></p><details id="sequence-conversion-panel" class="hidden"><summary>指令转换报告（首次读取时的结果）</summary><p class="muted small-text">错放在其他动作列的独立T0移至标志列；T0:n、F:n保留在期望执行时间列。仅按库内指令代号匹配，不按名称匹配。优先采用指令列已命中的库内编号；未命中时从说明列中的BC/YKE/PSS编号补救，仍未命中才置TEXT。控制行和纯参数判读行保留。PLUSE先暂停，人工继续后发送本行指令，再进入下一行。指令列为空时，说明中出现唯一库内编号（如BC2133或bc2133）就补填，无需“发送”字样；多个编号列出候选供人工选择。唯一代号匹配时转换；说明列或指令列匹配库内代号时，TEXT关键字改为空；两列均未匹配到代号的指令行设为TEXT并保留原文。多个候选或两列内容不一致时，请在预览中人工核对。指令列存在未入库的YKE/YKM时显示原表行号提示，并自动展开此报告；请确认代号，原文保留。转换和导出不保存或执行序列；导出包含所有已读取工作表，按标准七列A～G保存，新表的E/I/J/K内容不会带入。</p><div id="sequence-conversion-report"></div></details><div id="sequence-import-sheets"></div></div></section><section class="panel"><div class="panel-heading"><div><h2>配置检查与发送目标</h2><p>检查不会发送任何指令；有错误的工作表不能保存或启动。</p></div></div><div class="section-pad" id="sequence-validation">选择已保存序列，或读取Excel。</div></section><section class="panel"><div class="panel-heading"><h2 id="sequence-preview-title">读取后预览与修改</h2><div class="rule-toolbar"><button id="sequence-save-edits" class="button primary hidden" disabled>保存序列修改</button><button id="sequence-cancel-edits" class="button hidden" disabled>取消修改</button><button id="sequence-recheck" class="button primary" disabled>重新检测当前工作表</button><button id="sequence-preview-prev" class="button small">上一页</button><span id="sequence-preview-page"></span><button id="sequence-preview-next" class="button small">下一页</button></div></div><div class="table-scroll sequence-table-scroll"><table class="data-table sequence-table"><thead><tr><th>原行号</th><th>关键字</th><th>测试工作程序内容及要求</th><th>指令</th><th>判读要求</th><th>标志</th><th>期望执行时间</th><th>超时时间</th></tr></thead><tbody id="sequence-preview-rows"></tbody></table></div></section>`;
-  const importGroupField=element('label','sequence-import-group','导入分组');
-  importGroupField.insertAdjacentHTML('beforeend','<input id="sequence-import-group" list="sequence-group-names" maxlength="80" placeholder="选择或新建分组" autocomplete="off"><datalist id="sequence-group-names"></datalist>');
-  configView.querySelector('#sequence-import-policy').after(importGroupField);
+  configView.innerHTML=`<section class="panel"><div class="panel-heading"><div><h2>序列配置与Excel导入</h2><p>序列执行主动发送指令；序列判读仅监视。并行段内部均只监视、不主动发送。</p></div><button class="button" id="sequence-go-run">序列运行</button></div><div class="section-pad"><div class="sequence-form-grid"><label>已保存序列<select id="sequence-config-select"><option value="">新建导入</option></select></label><label>运行模式<select id="sequence-mode"><option value="judge">序列判读 · 仅监视</option><option value="execute">序列执行 · 主动发送</option></select></label><label>统一默认超时（秒）<input id="sequence-timeout" type="number" min="0.001" max="604800" step="any" value="30"></label><label>参数来源<select id="sequence-source"><option value="">按SPP来源自动绑定</option></select></label></div><p class="muted small-text" id="sequence-mode-hint"></p><div class="rule-toolbar"><button id="sequence-settings-save" class="button">保存运行设置</button><button id="sequence-delete" class="button danger">删除所选序列</button><button id="sequence-reload" class="button">重新载入</button></div><p class="error-text" id="sequence-config-error"></p><hr class="sequence-divider"><div class="rule-toolbar"><input id="sequence-file" type="file" accept=".xlsx"><select id="sequence-import-policy" aria-label="导入方式"><option value="add">添加序列</option><option value="replace">替换全部序列</option></select><button id="sequence-read" class="button">读取Excel预览</button><button id="sequence-convert" class="button">小工具：读取并转换指令</button><button id="sequence-convert-export" class="button" disabled>导出转换结果Excel</button><button id="sequence-apply" class="button primary" disabled>保存勾选工作表</button></div><p class="muted small-text">支持标准七列A～G；新十一列表读取A关键字、B测试工作内容、C指令、D判读、F标志、G期望执行时间、H超时时间，忽略E/I/J/K。预览与转换导出统一为原七列格式。判据可直接写TME.参数代号或TMB.参数代号，省略.value（兼容旧写法）；只取当前工程值，支持与 && / AND、或 || / OR、非 ! / NOT 和括号，例如 TME.A1 &gt; 0 &amp;&amp; INENUM(TMB.A2)。期望执行时间可填数字、T0:n或F:n，例如F:2为本序列开始后2秒。执行序列可在任意步骤以CALL启动XLP判读序列，随后继续执行；判读在独立页内标签运行。相同模式的CALL仍为末尾跳转。指令列填写目标序列号，目标独立计时并重新建立T0。</p><p id="sequence-import-error" class="form-error" role="alert" style="white-space:pre-wrap"></p><details id="sequence-conversion-panel" class="hidden"><summary>指令转换报告（首次读取时的结果）</summary><p class="muted small-text">错放在其他动作列的独立T0移至标志列；T0:n、F:n保留在期望执行时间列。仅按库内指令代号匹配，不按名称匹配。优先采用指令列已命中的库内编号；未命中时从说明列中的BC/YKE/PSS编号补救，仍未命中才置TEXT。控制行和纯参数判读行保留。PLUSE先暂停，人工继续后发送本行指令，再进入下一行。指令列为空时，说明中出现唯一库内编号（如BC2133或bc2133）就补填，无需“发送”字样；多个编号列出候选供人工选择。唯一代号匹配时转换；说明列或指令列匹配库内代号时，TEXT关键字改为空；两列均未匹配到代号的指令行设为TEXT并保留原文。多个候选或两列内容不一致时，请在预览中人工核对。指令列存在未入库的YKE/YKM时显示原表行号提示。请展开报告核对代号，原文保留。转换和导出不保存或执行序列；导出包含所有已读取工作表，按标准七列A～G保存，新表的E/I/J/K内容不会带入。</p><div id="sequence-conversion-report"></div></details><div id="sequence-import-sheets"></div></div></section><section class="panel"><div class="panel-heading"><div><h2>配置检查与发送目标</h2><p>检查不会发送任何指令；有错误的工作表不能保存或启动。</p></div></div><div class="section-pad" id="sequence-validation">选择已保存序列，或读取Excel。</div></section><section class="panel"><div class="panel-heading"><h2 id="sequence-preview-title">读取后预览与修改</h2><div class="rule-toolbar"><button id="sequence-save-edits" class="button primary hidden" disabled>保存序列修改</button><button id="sequence-cancel-edits" class="button hidden" disabled>取消修改</button><button id="sequence-recheck" class="button primary" disabled>重新检测当前工作表</button><button id="sequence-preview-prev" class="button small">上一页</button><span id="sequence-preview-page"></span><button id="sequence-preview-next" class="button small">下一页</button></div></div><div class="table-scroll sequence-table-scroll"><table class="data-table sequence-table"><thead><tr><th>原行号</th><th>关键字</th><th>测试工作程序内容及要求</th><th>指令</th><th>判读要求</th><th>标志</th><th>期望执行时间</th><th>超时时间</th></tr></thead><tbody id="sequence-preview-rows"></tbody></table></div></section>`;
+  const importGroupField=element('div','sequence-import-group');
+  importGroupField.innerHTML='<label>本批导入分组<input id="sequence-import-group" list="sequence-group-names" maxlength="80" placeholder="输入新分组，留空为未分组" autocomplete="off"><datalist id="sequence-group-names"></datalist></label><label>选择已有分组<select id="sequence-import-existing-group"><option value="">请选择已有分组</option></select></label><p class="muted small-text" id="sequence-import-group-hint">用于本批导入序列。读取后仍可调整，也可在预览中给单张表单独指定分组。</p>';
+  const importToolbar=configView.querySelector('#sequence-import-policy').closest('.rule-toolbar');
+  importToolbar.classList.add('sequence-import-toolbar');
+  importToolbar.before(importGroupField);
   const configGroupFilter=element('label','','分组');
   configGroupFilter.insertAdjacentHTML('beforeend','<select id="sequence-config-group" aria-label="序列配置分组"><option value="">全部分组</option></select>');
   configView.querySelector('#sequence-config-select').closest('label').before(configGroupFilter);
@@ -96,7 +98,24 @@ window.SequenceUI=(()=>{
   const groupEdits=new Map();
   const compareGroup=(a,b)=>a.localeCompare(b,'zh-CN',{numeric:true});
   const groupKey=definition=>'group:'+(definition.Group||'');
-  const previewGroup=definition=>groupEdits.get(definition?.Id)??definition?.Group??'';
+  const batchGroup=()=>$('sequence-import-group').value.trim();
+  const previewGroup=definition=>groupEdits.get(definition?.Id)??(preview?.editId?definition?.Group??'':batchGroup());
+  function updateImportGroups(){
+    const name=batchGroup();
+    const select=$('sequence-import-existing-group');
+    select.value=[...select.options].some(option=>option.value===name)?name:'';
+    $('sequence-import-group-hint').textContent=(name?'保存到「'+name+'」。':'留空时，本批导入序列保存为未分组。')+' 单独设置过分组的工作表沿用各自设置。';
+    if(!preview||preview.editId)return;
+    for(const {definition} of preview.definitions){
+      $('sequence-sheet-group-'+definition.Id).textContent=previewGroup(definition)||'未分组';
+    }
+    if(previewDefinition)$('sequence-preview-group').value=previewGroup(previewDefinition);
+  }
+  $('sequence-import-group').addEventListener('input',updateImportGroups);
+  $('sequence-import-existing-group').addEventListener('change',event=>{
+    $('sequence-import-group').value=event.target.value;
+    updateImportGroups();
+  });
   let taskRows=[],taskSession='',activeTask='',taskDrawSignature='',pendingCalledTask='',taskPolling=false,taskPollRequest=0,taskSelectionRevision=0,taskEntryPending=false,historyFocused=false;
   const closedTasks=new Set(),taskPages=new Map(),taskFocusPages=new Map();
   const modeName=mode=>mode==='execute'?'序列执行':'序列判读';
@@ -219,6 +238,7 @@ window.SequenceUI=(()=>{
     importClear.disabled=busy&&!importReading;
     for(const id of ['sequence-start-close','sequence-start-cancel','sequence-start-confirm','sequence-run-name','sequence-start-row','sequence-start-t0','sequence-start-f0'])$(id).disabled=busy;
     const active=!!activeTask&&!!runtime?.running,configActive=false;for(const id of ['sequence-mode','sequence-timeout','sequence-source','sequence-file','sequence-read','sequence-import-policy','sequence-import-group','sequence-settings-save','sequence-delete','sequence-apply'])$(id).disabled=busy||configActive;
+    $('sequence-import-existing-group').disabled=busy||$('sequence-import-existing-group').options.length<=1;
     $('sequence-convert').disabled=busy||configActive;$('sequence-convert-export').disabled=busy||dirtySheets.size>0||!preview;
     const editing=!!preview?.editId;for(const id of ['sequence-save-edits','sequence-cancel-edits'])$(id).classList.toggle('hidden',!editing);
     $('sequence-preview-title').textContent=editing?'已入库序列修改':'读取后预览与修改';
@@ -248,7 +268,29 @@ window.SequenceUI=(()=>{
   });
   function revokeSequencePreview(token){if(token)api('sequence/preview/cancel',{token}).catch(()=>{});}
   function releaseSequencePreview(){revokeSequencePreview(importToken||preview?.token);importToken='';}
-  function hideConversionReport(){conversionPanel.open=false;conversionPanel.classList.add('hidden');}
+  let renderedConversion=null, historyRevision='', historyQuery='';
+  function hideConversionReport(){
+    conversionPanel.open=false;
+    conversionPanel.classList.add('hidden');
+    $('sequence-conversion-report').replaceChildren();
+    renderedConversion=null;
+  }
+  function renderConversionReport(){
+    const conversion=preview?.conversion;
+    if(!conversionPanel.open||!conversion?.length||conversion===renderedConversion)return;
+    const names=new Map(preview.definitions.map(({definition})=>[definition.Sheet,definition.Name]));
+    const rows=document.createDocumentFragment();
+    for(const record of conversion){
+      let text=(names.get(record.sheet)||record.sheet)+' 第'+record.row+'行 · '+record.status+' · '+(record.before||'（空）')+' → '+(record.after||'（空）');
+      if(record.keywordBefore!==record.keywordAfter)text+=' · 关键字 '+(record.keywordBefore||'（空）')+' → '+(record.keywordAfter||'（空）');
+      if(record.markBefore!==record.markAfter)text+=' · 标志 '+(record.markBefore||'（空）')+' → '+(record.markAfter||'（空）');
+      if(record.reason)text+=' · '+record.reason;
+      rows.append(element('p',record.warning?'small-text error-text':'small-text',text));
+    }
+    $('sequence-conversion-report').replaceChildren(rows);
+    renderedConversion=conversion;
+  }
+  conversionPanel.addEventListener('toggle',renderConversionReport);
   function resetSequenceImport(cancelled){
     if(busy&&!importReading)return;if(importReading){importReading=false;busy=false;}
     $('sequence-file').value='';$('sequence-import-error').textContent='';$('sequence-conversion-report').replaceChildren();invalidate();previewPage=1;drawPreview();
@@ -260,6 +302,8 @@ window.SequenceUI=(()=>{
     config=value;fillConfigOptions();
     const groupNames=sequenceGroupNames(value.definitions);
     $('sequence-group-names').replaceChildren(...groupNames.map(name=>new Option(name,name)));
+    $('sequence-import-existing-group').replaceChildren(new Option('请选择已有分组',''),...groupNames.map(name=>new Option(name,name)));
+    updateImportGroups();
     fillRunOptions();
     $('sequence-source').replaceChildren(new Option('按SPP来源自动绑定',''),...value.sourceIPs.map(ip=>new Option(ip,ip)));
     $('sequence-timeout').value=value.defaultTimeout;$('sequence-config-error').textContent=value.error||'';configDirty=false;hint();controls();
@@ -383,18 +427,16 @@ window.SequenceUI=(()=>{
   }
   function drawImport(result){
     const previousId=previewDefinition?.Id,selected=new Map([...document.querySelectorAll('.sequence-sheet-check')].map(c=>[c.value,c.checked]));
-    const sequenceNames=new Map(result.definitions.map(item=>[item.definition.Sheet,item.definition.Name]));
     const conversion=result.conversion||[],warnings=conversion.filter(record=>record.warning).length;
     conversionPanel.classList.toggle('hidden',!conversion.length);
     conversionSummary.textContent=warnings?`指令转换报告（${warnings} 项待核对）`:'指令转换报告（首次读取时的结果）';
-    $('sequence-conversion-report').replaceChildren(...conversion.map(record=>element('p',record.warning?'small-text error-text':'small-text',(sequenceNames.get(record.sheet)||record.sheet)+' 第'+record.row+'行 · '+record.status+' · '+(record.before||'（空）')+' → '+(record.after||'（空）')+(record.keywordBefore!==record.keywordAfter?' · 关键字 '+(record.keywordBefore||'（空）')+' → '+(record.keywordAfter||'（空）'):'')+(record.markBefore!==record.markAfter?' · 标志 '+(record.markBefore||'（空）')+' → '+(record.markAfter||'（空）'):'')+(record.reason?' · '+record.reason:''))));
-    preview=result;const container=$('sequence-import-sheets');container.replaceChildren();const failures=[];
+    preview=result;renderConversionReport();const container=$('sequence-import-sheets');container.replaceChildren();const failures=[];
     let currentFilename='';
     for(const item of result.definitions){
       const filename=item.definition.Filename;
       if(result.fileCount>1&&filename!==currentFilename){container.append(element('h3','sequence-import-source',filename));currentFilename=filename;}
       const line=element('div','sequence-sheet-line'),label=element('label'),check=element('input');check.type='checkbox';check.className='sequence-sheet-check';check.value=item.definition.Id;check.checked=item.errors.length===0&&(selected.get(item.definition.Id)??true);check.disabled=item.errors.length>0||dirtySheets.has(item.definition.Id);check.addEventListener('change',controls);
-      const group=element('span','muted small-text',previewGroup(item.definition).trim()||'未分组');group.id='sequence-sheet-group-'+item.definition.Id;
+      const group=element('span','sequence-sheet-group small-text',previewGroup(item.definition).trim()||'未分组');group.id='sequence-sheet-group-'+item.definition.Id;
       label.append(check,document.createTextNode(item.definition.Name+' · '+(item.definition.Code||'保存时分配序列号')+' · '+item.definition.Rows.length+'项 · '+item.errors.length+'项错误'+(dirtySheets.has(item.definition.Id)?' · 待重新检测':'')+' · '),group);
       const inspect=element('button','button small','查看 / 修改');inspect.type='button';inspect.addEventListener('click',()=>{previewDefinition=item.definition;previewPage=1;validation(item);drawPreview();controls();});line.append(label,inspect);container.append(line);
       for(const error of item.errors)failures.push('序列“'+item.definition.Name+'” '+error);
@@ -407,10 +449,13 @@ window.SequenceUI=(()=>{
     if(busy||!preview||!previewDefinition)return;const epoch=generation,request=previewEpoch,id=previewDefinition.Id;
     busy=true;controls();
     try{
-      const result=await api('sequence/recheck',{token:preview.token,id,name:previewDefinition.Name,rows:previewDefinition.Rows,nextRowNumber:previewDefinition.NextRowNumber||undefined});if(epoch!==generation||request!==previewEpoch)return;
-      result.fileErrors=preview.fileErrors;result.fileCount=preview.fileCount;
-      for(const item of preview.definitions)if(item.definition.Id!==id&&dirtySheets.has(item.definition.Id)){const index=result.definitions.findIndex(d=>d.definition.Id===item.definition.Id);if(index>=0)result.definitions[index]=item;}
-      dirtySheets.delete(id);drawImport(result);toast('重新检测完成，请查看错误提示和工作表勾选状态');
+      const result=await api('sequence/recheck?scope=sheet',{token:preview.token,id,name:previewDefinition.Name,rows:previewDefinition.Rows,nextRowNumber:previewDefinition.NextRowNumber||undefined});
+      if(epoch!==generation||request!==previewEpoch)return;
+      const checked=result.definitions.find(item=>item.definition.Id===id);
+      if(!checked)throw new Error('服务器未返回当前工作表的检查结果');
+      preview.token=result.token;
+      preview.definitions=preview.definitions.map(item=>item.definition.Id===id?checked:item);
+      dirtySheets.delete(id);drawImport(preview);toast('当前工作表检测完成');
     }catch(error){if(epoch===generation)$('sequence-import-error').textContent='重新检测失败：'+error.message;}
     finally{if(epoch===generation){busy=false;controls();}}
   }
@@ -421,7 +466,8 @@ window.SequenceUI=(()=>{
   $('sequence-preview-group').addEventListener('input',event=>{
     if(!previewDefinition||busy)return;
     const {Id,Group}=previewDefinition,value=event.target.value.trim();
-    if(value===(Group||''))groupEdits.delete(Id);else groupEdits.set(Id,value);
+    const defaultGroup=preview.editId?(Group||''):batchGroup();
+    if(value===defaultGroup)groupEdits.delete(Id);else groupEdits.set(Id,value);
     $('sequence-sheet-group-'+Id).textContent=value||'未分组';
   });
   $('sequence-recheck').addEventListener('click',recheck);
@@ -442,7 +488,7 @@ window.SequenceUI=(()=>{
     busy=true;controls();const epoch=generation;
     try{
       const ids=[...document.querySelectorAll('.sequence-sheet-check:checked')].map(c=>c.value);
-      const groups=Object.fromEntries(ids.filter(id=>groupEdits.has(id)).map(id=>[id,groupEdits.get(id)]));
+      const groups=Object.fromEntries(ids.map(id=>[id,groupEdits.get(id)??batchGroup()]));
       const value=await api('sequence/apply',{token:preview.token,ids,mode,groups});
       if(epoch!==generation)return;
       invalidate();drawConfig(value);selectSavedSequence(ids[0]);
@@ -524,7 +570,13 @@ window.SequenceUI=(()=>{
   async function history(){
     if(!app.user)return;if(Date.now()>=nextRunList&&document.activeElement!==$('sequence-history-scope'))loadRuns();const epoch=generation,request=++historyRequest,runId=historyRunId(),search=historySearch,requestedPage=historyPage,mode=activeTask?runMode:'',result=$('sequence-history-result').value;
     $('sequence-export').href='/api/sequence/export.csv?'+new URLSearchParams({runId,search,mode,result});
-    try{const value=await api('sequence/history?'+new URLSearchParams({runId,search,mode,result,page:String(requestedPage)}));if(epoch!==generation||mode!==(activeTask?runMode:'')||request!==historyRequest||runId!==historyRunId()||search!==historySearch||requestedPage!==historyPage||result!==$('sequence-history-result').value)return;historyPage=value.page;const body=$('sequence-history-rows');body.replaceChildren();
+    const query=new URLSearchParams({runId,search,mode,result,page:String(requestedPage)});
+    const key=query.toString();
+    if(key===historyQuery&&historyRevision)query.set('since',historyRevision);
+    try{const value=await api('sequence/history?'+query);if(epoch!==generation||mode!==(activeTask?runMode:'')||request!==historyRequest||runId!==historyRunId()||search!==historySearch||requestedPage!==historyPage||result!==$('sequence-history-result').value)return;
+      if(value.unchanged)return;
+      historyQuery=key;historyRevision=value.revision;
+      historyPage=value.page;const body=$('sequence-history-rows');body.replaceChildren();
       for(const e of value.rows){
         const tr=element('tr',e.Event==='异常'?'sequence-row-error':['通过','注释','T0已建立'].includes(e.Status)?'sequence-row-pass':'');
         for(const v of [e.Time,shipTimeText(e.ShipTime),modeName(e.Mode)+(e.Code?' · '+e.Code:'')+'\n'+e.Sequence,(e.Row||'—')+' / '+e.Event,e.Status,e.Values||'—',resultReason(e.Status,e.Reason,e.Input)||e.Input?.Description||''])tr.append(td(v));
@@ -571,7 +623,8 @@ window.SequenceUI=(()=>{
   window.addEventListener('abnormal-records-changed',()=>{if(app.user&&runViewActive())history();});
   function render(){if(!app.user)return;const now=Date.now();if(!['sequence-config','sequence-run','sequence-execute'].includes(app.view))return;activateRunMode();if(now-lastRefresh>700){lastRefresh=now;pollLaunch();if(runViewActive()&&activeTask)refreshRun();}if(runViewActive()&&now-lastHistory>4000){lastHistory=now;history();}}
   function reset(){
-    importToken='';importProgress.textContent='';hideConversionReport();groupEdits.clear();$('sequence-import-group').value='';$('sequence-group-names').replaceChildren();
+    historyQuery=historyRevision='';
+    importToken='';importProgress.textContent='';hideConversionReport();groupEdits.clear();$('sequence-import-group').value='';$('sequence-group-names').replaceChildren();$('sequence-import-existing-group').replaceChildren(new Option('请选择已有分组',''));updateImportGroups();
     configGroupSelection=runGroupSelections.judge=runGroupSelections.execute='';
     for(const id of ['sequence-config-group','sequence-launch-group'])fillGroupFilter($(id),[],'');
     taskRows=[];taskSession='';activeTask='';historyFocused=false;taskPolling=false;taskPollRequest++;taskSelectionRevision++;closedTasks.clear();taskPages.clear();taskFocusPages.clear();drawTaskTabs();launchPanel.classList.remove('hidden');detailPanel.classList.add('hidden');pendingCalledTask='';runSelections.judge=runSelections.execute='';historySearch='';runListPage=runListPages=1;nextRunList=0;runListRequest++;historyRequest++;runListLoading=false;$('sequence-history-search').value='';$('sequence-history-result').value='all';$('sequence-history-scope').replaceChildren(new Option('全部匹配运行','all'),new Option('当前运行','current'));$('sequence-runs-page').textContent='';$('sequence-history-filter-error').textContent='';$('sequence-conversion-panel').classList.add('hidden');dirtySheets.clear();$('sequence-import-error').textContent='';generation++;importReading=false;startDialog.close();pendingStart=null;syncStartSettings(null);previewEpoch++;config=preview=previewDefinition=runtime=null;busy=loading=false;runPage=previewPage=historyPage=1;lastRefresh=lastHistory=0;configDirty=false;$('sequence-file').value='';$('sequence-import-sheets').replaceChildren();$('sequence-summary').replaceChildren();$('sequence-t0').replaceChildren();$('sequence-validation').textContent='等待读取';for(const id of ['sequence-run-error','sequence-config-error'])$(id).textContent='';for(const id of ['sequence-config-select','sequence-run-select'])$(id).replaceChildren();empty($('sequence-run-rows'),10,'等待登录');empty($('sequence-history-rows'),9,'等待登录');empty($('sequence-history-run-list'),6,'等待登录');drawPreview();controls();

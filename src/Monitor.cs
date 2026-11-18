@@ -295,6 +295,7 @@ namespace TelemetryMonitor
                         definition = PacketCodec.AtOffset(route.Definition, route.Offset);
                         packetCount = PacketCountersFor(definition.Id);
                         packetCount.Received++;
+                        packetCount.LastMatch=stamp.ObservedUtc;
                         p = rawParsed != null && rawParsed.PacketId == definition.Id ? rawParsed : PacketCodec.Parse(data, definition);
                         plan = RuntimeDecodePlan(definition.Id);
                         cfg = plan.Settings;
@@ -305,6 +306,7 @@ namespace TelemetryMonitor
                     p = Protocol.Parse(data, cfg);
                     packetCount = PacketCountersFor("legacy-apid-" + p.Apid);
                     packetCount.Received++;
+                    packetCount.LastMatch=stamp.ObservedUtc;
                 }
             }
             catch (ArgumentException ex) { parseError = ex.Message; }
@@ -323,8 +325,13 @@ namespace TelemetryMonitor
                 {
                     packetCount = PacketCountersFor(rejectedRoute.Definition.Id);
                     packetCount.Received++;
+                    packetCount.LastMatch=stamp.ObservedUtc;
                 }
-                if (packetCount != null) packetCount.Invalid++;
+                if (packetCount != null)
+                {
+                    packetCount.Invalid++;
+                    packetCount.LastOutcome=parseError;
+                }
                 Invalid++; src.Invalid++;
                 RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, parseError, definition, !unrecognized, NativeDecoder ? route ?? rejectedRoute : null);
                 string rejection = unrecognized ? "SPP未识别（信息，不告警）：" + parseError : parseError;
@@ -346,6 +353,7 @@ namespace TelemetryMonitor
             if (disposition == 1)
             {
                 Duplicates++; src.Duplicates++; packetCount.Duplicates++;
+                packetCount.LastOutcome="帧计数重复，已跳过解码";
                 RecordAlarm("warn", "重复帧", "帧计数重复，已忽略：APID=" + p.Apid + "，计数=" + p.Sequence, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
                 return;
             }
@@ -369,12 +377,17 @@ namespace TelemetryMonitor
             }
             Accepted++; src.Accepted++; packetCount.Accepted++;
             bool validPacket = p.ChecksumVerified && String.IsNullOrEmpty(p.Warning);
-            if (validPacket) RecordPacketFreshness(NativeDecoder ? definition.Id : "legacy-apid-" + p.Apid, ip);
+            if (validPacket)
+            {
+                packetCount.LastValidFrame=stamp.ObservedUtc;
+                RecordPacketFreshness(NativeDecoder ? definition.Id : "legacy-apid-" + p.Apid, ip);
+            }
             lastPacket = lastDatagram;
             bool decode = (cfg.MappingConfirmed || simulated) && validPacket && (NativeDecoder || p.Apid == cfg.ParameterApid);
             if (!String.IsNullOrEmpty(p.Warning)) RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, p.Warning, definition, resolved: route);
             packetInfo = new { apid = p.Apid, sequence = p.Sequence, datagramLength = data.Length, sppOffset = p.Offset, sppLength = p.Length,
                 checksum = p.ChecksumVerified ? "通过" : "待核实", decoding = decode, warning = p.Warning, packetId = p.PacketId, packetName = p.PacketName, time = BeijingTime.Now.ToString("HH:mm:ss.fff") };
+            packetCount.LastOutcome = !validPacket ? p.Warning ?? "校验未通过" : "有效新帧，未启用参数解码";
             if (decode)
             {
                 if (plan == null) EnsureRuntimeIndexes();
@@ -382,6 +395,7 @@ namespace TelemetryMonitor
                 var changedParameters = plan == null ? runtimeLegacyChanged : plan.Changed;
                 var stream = fields.Length == 0 ? null : EngineeringStream(ip);
                 List<string> invalidFields = null;
+                bool updatedParameters = false;
                 DateTime now = stamp.ObservedUtc;
                 double observed = stamp.DataSeconds, dataTime = Demo ? replayCaptureMs / 1000 : observed;
                 string timeUtc = BeijingTime.Iso(now);
@@ -397,7 +411,12 @@ namespace TelemetryMonitor
                         if (invalidFields == null) invalidFields = new List<string>();
                         if (invalidFields.Count < 8) invalidFields.Add(def.Code + "：" + reading.Diagnostic);
                     }
+                    else updatedParameters = true;
                 }
+                if (updatedParameters) packetCount.LastParameterUpdate=stamp.ObservedUtc;
+                packetCount.LastOutcome = invalidFields != null
+                    ? (updatedParameters ? "部分参数解码异常：" : "参数解码异常：") + invalidFields[0]
+                    : updatedParameters ? "参数已更新" : "未关联可解码参数";
                 if (invalidFields != null)
                     RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, "参数解码异常：" + String.Join("；", invalidFields), definition, resolved: route);
                 EvaluateContinuous(ip, changedParameters);

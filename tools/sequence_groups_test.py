@@ -73,11 +73,29 @@ def main():
             client = start(first=True)
             info = client.call('/api/sequence/config')
             assert info['definitions'][0]['Group'] == '' and info['definitions'][0]['Code'] == 'XLP0001'
+            other = Client(port=int(client.base.rsplit(':',1)[1]))
+            other.csrf = other.call('/api/auth/login', dict(username='groupqa', password=password))['csrf']
+            request = dict(id=old_id, revision=info['revision'])
+            first = client.call('/api/sequence/edit-preview', request)
+            second = other.call('/api/sequence/edit-preview', request)
+            other.call('/api/sequence/preview/cancel', dict(token=first['token']))
+            definition = first['definitions'][0]['definition']
+            checked = client.call('/api/sequence/recheck?scope=sheet', dict(token=first['token'], id=old_id, rows=definition['Rows']))
+            assert len(checked['definitions']) == 1
+            client.call('/api/sequence/save-edits', dict(token=checked['token'], group=''))
+            conflict = other.call('/api/sequence/save-edits', dict(token=second['token'], group='不应覆盖'), expected=409)
+            assert '预览仍保留' in conflict['error']
+            other.call('/api/sequence/recheck?scope=sheet', dict(token=second['token'], id=old_id, rows=definition['Rows']))
+            other.call('/api/sequence/preview/cancel', dict(token=second['token']))
+            print('PASS concurrent shared-account sessions keep separate previews and conflicting saves preserve the draft')
             auth = root / 'browser-input.json'
             auth.write_text(json.dumps(dict(base=client.base, password=password, workbook=str(workbook), oldId=old_id,
                                             batch=[str(broken), str(first_batch), str(second_batch)], conversion=str(conversion_file))), encoding='utf-8')
-            subprocess.run([os.environ.get('DMS_BROWSER_NODE', 'node'), str(ROOT / 'tools/sequence_groups_browser.mjs'), str(auth)],
-                           check=True, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW)
+            browser = subprocess.run(
+                [os.environ.get('DMS_BROWSER_NODE', 'node'), str(ROOT / 'tools/sequence_groups_browser.mjs'), str(auth)],
+                capture_output=True, encoding='utf-8', timeout=90, creationflags=subprocess.CREATE_NO_WINDOW)
+            assert browser.returncode == 0, browser.stdout + browser.stderr
+            print(browser.stdout, end='')
             saved = config_path.read_bytes()
             stop()
             client = start()

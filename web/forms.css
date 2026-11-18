@@ -1,0 +1,107 @@
+/* Shared form controls for configuration, filters, imports and dialogs. */
+:root {
+  --control-height: 38px;
+  --control-border: #d4e1e5;
+  --control-radius: 8px;
+}
+:where(input:not([type="checkbox"],[type="radio"],[type="range"],[type="color"],[type="hidden"]), select) {
+  min-height: var(--control-height);
+  max-width: 100%;
+  font: inherit;
+  color: var(--ink);
+}
+input:not([type="checkbox"],[type="radio"],[type="range"],[type="color"],[type="hidden"],[type="file"]),
+select,
+textarea {
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  background-color: #fff;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+textarea { font-family: inherit; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, .search-field:focus-within {
+  outline: 2px solid #298780;
+  outline-offset: 2px;
+}
+:is(input, select, textarea):disabled {
+  background-color: #f3f6f7;
+  color: #64777f;
+  cursor: not-allowed;
+}
+input::placeholder, textarea::placeholder { color: #697c85; }
+input[type="file"] {
+  border: 1px dashed var(--control-border);
+  border-radius: var(--control-radius);
+  background: #f7fafb;
+  padding: 4px 7px;
+  font-size: 12px;
+}
+input[type="file"]::file-selector-button {
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  margin-inline-end: 9px;
+  background: #fff;
+  color: #345961;
+  cursor: pointer;
+}
+:where(.rule-toolbar, .table-toolbar, .selector-toolbar, .archive-filters, .import-action-line) {
+  column-gap: 10px;
+  row-gap: 8px;
+}
+:is(.rule-toolbar, .table-toolbar, .selector-toolbar, .archive-filters, .import-action-line) > .button:not(.small) {
+  min-height: var(--control-height);
+}
+:is(.rule-toolbar, .table-toolbar, .selector-toolbar, .archive-filters) .search-field {
+  min-height: var(--control-height);
+  border-color: var(--control-border);
+  border-radius: var(--control-radius);
+}
+.search-field input { min-height: 0; }
+:is(.rule-toolbar, .table-toolbar, .selector-toolbar, .archive-filters, .form-grid, .rule-form-grid) :is(select:not([multiple]), input[type="text"], input[type="search"], input[type="number"], input:not([type])):not(.search-field input) {
+  height: var(--control-height);
+}
+.sequence-form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sequence-form-grid:has(#sequence-preview-group) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 700px) {
+  .sequence-form-grid, .sequence-form-grid:has(#sequence-preview-group) { grid-template-columns: minmax(0, 1fr); }
+}
+:is(.sequence-form-grid, .form-grid, .rule-form-grid) > label { align-content: start; }
+.sequence-form-grid > label > :is(input, select) { min-height: var(--control-height); }
+
+.sequence-import-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  padding: 13px 16px;
+  border: 1px solid #e0ebee;
+  border-radius: 10px;
+  background: #f8fbfc;
+}
+.sequence-import-group label { display: grid; gap: 6px; min-width: 0; }
+.sequence-import-group :is(input,select) { width: 100%; min-width: 0; }
+#sequence-import-group-hint { grid-column: 1 / -1; font-weight: 400; color: #546e76; overflow-wrap: anywhere; }
+.sequence-import-toolbar > input[type="file"] { flex: 1 1 240px; min-width: 0; }
+.sequence-import-toolbar > button { flex: 0 1 auto; }
+.sequence-import-toolbar > #sequence-apply { margin-inline-start: auto; }
+.sequence-sheet-group {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #edf5f6;
+  color: #315f66;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.spp-stat-panel .table-scroll { overflow-x: auto; }
+.spp-stat-panel th { white-space: nowrap; }
+.spp-timestamp { white-space: nowrap; }
+.spp-result { min-width: 125px; overflow-wrap: anywhere; }
+
+@media (max-width: 680px) {
+  .sequence-import-group { grid-template-columns: minmax(0, 1fr); }
+  .sequence-import-toolbar > #sequence-apply { margin-inline-start: 0; }
+  #sequence-launch-inputs { min-width: 0; }
+  #sequence-run-select { min-width: 0; }
+}

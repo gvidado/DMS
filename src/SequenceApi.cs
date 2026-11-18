@@ -9,13 +9,20 @@ using System.Threading;
 namespace TelemetryMonitor
 {
     internal sealed class SequenceImportPreview
-    {public string Token,Username,Revision,EditId;public DateTime Created;public double Timeout;public bool Appendable;public List<SequenceDefinition> Definitions;public List<SequenceConversionEntry> Conversion=new List<SequenceConversionEntry>();}
+    {public string Token,OwnerSession,Revision,EditId;public DateTime Created;public double Timeout;public bool Appendable;public List<SequenceDefinition> Definitions;public List<SequenceConversionEntry> Conversion=new List<SequenceConversionEntry>();}
     public sealed partial class Server
     {
         private Timer sequenceTimer;
         private int sequenceServiceBusy;
         private readonly Dictionary<string,SequenceImportPreview> sequencePreviews=new Dictionary<string,SequenceImportPreview>();
         private readonly Dictionary<string,string> sequenceStartRequests=new Dictionary<string,string>();
+        private void PruneSequencePreviews()
+        {
+            var expired = DateTime.UtcNow.AddMinutes(-10);
+            foreach (string token in sequencePreviews.Where(p => p.Value.Created < expired).Select(p => p.Key).ToArray())
+                sequencePreviews.Remove(token);
+        }
+
         private void InitializeSequenceService(){sequenceTimer=new Timer(SequenceServiceTick,null,25,25);}
         private void SequenceServiceTick(object ignored)
         {
@@ -47,7 +54,7 @@ namespace TelemetryMonitor
             if(path=="/api/sequence/preview/cancel" && method=="POST")
             {
                 var body=Body(ctx.Request);string token=Text(body,"token");lock(commandGate)
-                {SequenceImportPreview preview;if(sequencePreviews.TryGetValue(token,out preview)&&preview.Username==session.Username)sequencePreviews.Remove(token);}
+                {SequenceImportPreview preview;if(sequencePreviews.TryGetValue(token,out preview)&&preview.OwnerSession==session.Token)sequencePreviews.Remove(token);}
                 Json(ctx.Response,new{ok=true},200);return true;
             }
             if(path=="/api/sequence/definition" && method=="GET")
@@ -59,7 +66,6 @@ namespace TelemetryMonitor
             {int page;if(!Int32.TryParse(Query(ctx.Request,"page"),out page))page=1;Json(ctx.Response,monitor.SequenceState(Query(ctx.Request,"id"),page,Query(ctx.Request,"mode").Length==0?"judge":Query(ctx.Request,"mode"),Query(ctx.Request,"runId")),200);return true;}
             if(path=="/api/sequence/preview" && method=="POST")
             {
-                DateTime requestedAt=DateTime.UtcNow;
                 string filename=Path.GetFileName(Query(ctx.Request,"filename")),mode=Query(ctx.Request,"mode"),source=Query(ctx.Request,"sourceIP");double timeout;
                 string batchToken=Query(ctx.Request,"batchToken");
                 bool convert=Query(ctx.Request,"convert")=="commands";
@@ -73,7 +79,7 @@ namespace TelemetryMonitor
                     string revision=monitor.SequenceConfigurationRevision;
                     if(batchToken.Length>0)
                     {
-                        if(!sequencePreviews.TryGetValue(batchToken,out preview)||preview.Username!=session.Username||!preview.Appendable||
+                        if(!sequencePreviews.TryGetValue(batchToken,out preview)||preview.OwnerSession!=session.Token||!preview.Appendable||
                             (DateTime.UtcNow-preview.Created).TotalMinutes>10)
                             throw new InvalidOperationException("批量预览已过期，请重新读取整批文件");
                         if(preview.Revision!=revision||preview.Timeout!=timeout||convert)
@@ -86,9 +92,9 @@ namespace TelemetryMonitor
                     var checkedDefinitions=definitions.Select(d=>monitor.SequenceValidate(d,timeout)).ToArray();
                     if(preview==null)
                     {
-                        foreach(string key in sequencePreviews.Where(p=>(p.Value.Username==session.Username&&p.Value.Created<=requestedAt) || (DateTime.UtcNow-p.Value.Created).TotalMinutes>10).Select(p=>p.Key).ToArray())sequencePreviews.Remove(key);
+                        PruneSequencePreviews();
                         if(sequencePreviews.Count>=16)throw new InvalidOperationException("当前导入预览较多，请稍后再试");
-                        preview=new SequenceImportPreview{Token=Auth.RandomToken(),Username=session.Username,Revision=revision,Timeout=timeout,Definitions=definitions,Conversion=conversion,Appendable=!convert&&Query(ctx.Request,"batch")=="1"};
+                        preview=new SequenceImportPreview{Token=Auth.RandomToken(),OwnerSession=session.Token,Revision=revision,Timeout=timeout,Definitions=definitions,Conversion=conversion,Appendable=!convert&&Query(ctx.Request,"batch")=="1"};
                         sequencePreviews.Add(preview.Token,preview);
                     }
                     else preview.Definitions.AddRange(definitions);
@@ -103,17 +109,24 @@ namespace TelemetryMonitor
                 var body=Body(ctx.Request,8*1024*1024);lock(commandGate)
                 {
                     SequenceImportPreview previous;
-                    if(!sequencePreviews.TryGetValue(Text(body,"token"),out previous) || previous.Username!=session.Username || (DateTime.UtcNow-previous.Created).TotalMinutes>10)throw new ArgumentException("预览已过期，请重新读取Excel");
+                    if(!sequencePreviews.TryGetValue(Text(body,"token"),out previous) || previous.OwnerSession!=session.Token || (DateTime.UtcNow-previous.Created).TotalMinutes>10)throw new ArgumentException("预览已过期，请重新读取Excel");
                     object input;if(!body.TryGetValue("rows",out input))throw new ArgumentException("缺少预览行内容");
                     var rows=JsonFile.Decode<List<SequenceRow>>(JsonFile.Encode(input));
-                    var definitions=JsonFile.Decode<List<SequenceDefinition>>(JsonFile.Encode(previous.Definitions));var definition=definitions.FirstOrDefault(d=>d.Id==Text(body,"id"));
+                    var definitions = new List<SequenceDefinition>(previous.Definitions);
+                    int index = definitions.FindIndex(d => d.Id == Text(body, "id"));
+                    var definition = index < 0 ? null : JsonFile.Decode<SequenceDefinition>(JsonFile.Encode(definitions[index]));
                     if(definition==null)throw new ArgumentException("工作表不存在，请重新读取或选择序列");
                     if(body.ContainsKey("name"))definition.Name=Text(body,"name").Trim();
                     SequenceRowEditing.Update(definition,rows,Text(body,"nextRowNumber"));
                     monitor.AnnotateImportedSequenceCommands(new[]{definition});
-                    var checkedDefinitions=definitions.Select(d=>monitor.SequenceValidate(d,previous.Timeout)).ToArray();
-                    var updated=new SequenceImportPreview{Token=Auth.RandomToken(),Username=previous.Username,Revision=previous.Revision,EditId=previous.EditId,Created=DateTime.UtcNow,Timeout=previous.Timeout,Definitions=definitions,Conversion=previous.Conversion};
-                    sequencePreviews.Remove(previous.Token);sequencePreviews[updated.Token]=updated;Json(ctx.Response,new{token=updated.Token,definitions=checkedDefinitions,conversion=updated.Conversion,editId=updated.EditId},200);
+                    definitions[index] = definition;
+                    bool singleSheet = Query(ctx.Request, "scope") == "sheet";
+                    var checkedDefinitions = (singleSheet ? new[]{definition}.AsEnumerable() : definitions)
+                        .Select(d => monitor.SequenceValidate(d, previous.Timeout)).ToArray();
+                    previous.Definitions = definitions;
+                    previous.Created = DateTime.UtcNow;
+                    Json(ctx.Response, new { token = previous.Token, definitions = checkedDefinitions,
+                        conversion = singleSheet ? null : previous.Conversion, editId = previous.EditId }, 200);
                 }
                 return true;
             }
@@ -122,7 +135,7 @@ namespace TelemetryMonitor
                 var body=Body(ctx.Request);byte[] bytes;string downloadName;lock(commandGate)
                 {
                     SequenceImportPreview preview;
-                    if(!sequencePreviews.TryGetValue(Text(body,"token"),out preview) || preview.Username!=session.Username || (DateTime.UtcNow-preview.Created).TotalMinutes>10)throw new ArgumentException("预览已过期，请重新读取Excel");
+                    if(!sequencePreviews.TryGetValue(Text(body,"token"),out preview) || preview.OwnerSession!=session.Token || (DateTime.UtcNow-preview.Created).TotalMinutes>10)throw new ArgumentException("预览已过期，请重新读取Excel");
                     bytes=WorkbookReader.ExportConvertedSequences(preview.Definitions);
                     var definition=preview.Definitions.FirstOrDefault();string stem=Path.GetFileNameWithoutExtension(definition==null?"":definition.Filename??"");
                     downloadName=(String.IsNullOrWhiteSpace(stem)?"序列":stem)+"_判读格式匹配.xlsx";
@@ -133,7 +146,7 @@ namespace TelemetryMonitor
             {
                 var body=Body(ctx.Request);lock(commandGate)
                 {
-                    SequenceImportPreview preview;if(!sequencePreviews.TryGetValue(Text(body,"token"),out preview)||preview.Username!=session.Username||(DateTime.UtcNow-preview.Created).TotalMinutes>10)throw new ArgumentException("预览已过期，请重新读取Excel");
+                    SequenceImportPreview preview;if(!sequencePreviews.TryGetValue(Text(body,"token"),out preview)||preview.OwnerSession!=session.Token||(DateTime.UtcNow-preview.Created).TotalMinutes>10)throw new ArgumentException("预览已过期，请重新读取Excel");
                     if(!String.IsNullOrEmpty(preview.EditId))throw new ArgumentException("已入库序列请使用保存序列修改，不能作为新导入应用");
                     object input;if(!body.TryGetValue("ids",out input))throw new ArgumentException("请选择要保存的工作表");var ids=JsonFile.Decode<string[]>(JsonFile.Encode(input));if(ids==null||ids.Length==0||ids.Distinct().Count()!=ids.Length||ids.Any(id=>!preview.Definitions.Any(d=>d.Id==id)))throw new ArgumentException("工作表选择无效");
                     string mode=Text(body,"mode");if(mode!="add"&&mode!="replace")throw new ArgumentException("请选择添加或替换");
@@ -189,7 +202,7 @@ namespace TelemetryMonitor
             if(path=="/api/sequence/runs" && method=="GET")
             {int page;if(!Int32.TryParse(Query(ctx.Request,"page"),out page))page=1;Json(ctx.Response,monitor.SequenceRunsPage(page,Query(ctx.Request,"search"),Query(ctx.Request,"mode")),200);return true;}
             if(path=="/api/sequence/history" && method=="GET")
-            {int page;if(!Int32.TryParse(Query(ctx.Request,"page"),out page))page=1;string result=Query(ctx.Request,"result");Json(ctx.Response,monitor.SequenceHistoryPage(page,Query(ctx.Request,"runId"),Query(ctx.Request,"search"),Query(ctx.Request,"mode"),result.Length==0?"all":result),200);return true;}
+            {int page;if(!Int32.TryParse(Query(ctx.Request,"page"),out page))page=1;string result=Query(ctx.Request,"result");Json(ctx.Response,monitor.SequenceHistoryPage(page,Query(ctx.Request,"runId"),Query(ctx.Request,"search"),Query(ctx.Request,"mode"),result.Length==0?"all":result,Query(ctx.Request,"since")),200);return true;}
             if(path=="/api/sequence/export.csv" && method=="GET")
             {string result=Query(ctx.Request,"result");ctx.Response.ContentType="text/csv; charset=utf-8";ctx.Response.SendChunked=true;ctx.Response.Headers["Content-Disposition"]="attachment; filename=sequence-results.csv";using(var writer=new StreamWriter(ctx.Response.OutputStream,new UTF8Encoding(true),65536,true))monitor.ExportSequenceHistory(writer,Query(ctx.Request,"runId"),Query(ctx.Request,"search"),Query(ctx.Request,"mode"),result.Length==0?"all":result);return true;}
             Json(ctx.Response,new{error="序列接口不存在"},404);return true;

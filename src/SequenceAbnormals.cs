@@ -22,7 +22,17 @@ namespace TelemetryMonitor
         private UnifiedAbnormalSnapshot SequenceAbnormalSnapshot(out string error)
         {
             error=sequenceHistoryError;var entries=new Dictionary<long,SequenceHistoryEvent>();long version=0;
-            try{version=SequenceHistoryVersion();foreach(var entry in ReadSequenceHistory())if(entry.Event=="异常")entries.Add(entry.HistoryId,entry);}
+            try
+            {
+                SequenceHistoryLocation[] locations;
+                lock (sequenceHistoryIndexGate)
+                {
+                    var index = UpdateSequenceHistoryIndex();
+                    version = index.Position;
+                    locations = index.Abnormal.ToArray();
+                }
+                foreach (var entry in ReadHistoryLocations(locations)) entries.Add(entry.HistoryId, entry);
+            }
             catch(Exception ex){error="序列异常历史读取失败，原文件保留："+ex.Message;entries.Clear();}
             return new UnifiedAbnormalSnapshot{Revision=version,Through=entries.Count==0?0:entries.Keys.Max(),
                 Rows=()=>entries.Values.Select(SequenceAbnormalRow),Read=id=>SequenceAbnormalRow(entries[id])};
@@ -46,10 +56,12 @@ namespace TelemetryMonitor
             if(result=="all")return true;if(entry.Event!="异常")return false;if(result=="abnormal")return true;
             var incident=FindSequenceIncident(entry,incidents);return incident!=null&&incident.released==(result=="released");
         }
-        private static object SequenceHistoryResponse(SequenceHistoryEvent entry,UnifiedAbnormalPlan plan,Dictionary<string,UnifiedAbnormalRecord> incidents)
+        private static object SequenceHistoryResponse(SequenceHistoryEvent entry, UnifiedAbnormalPlan plan, Dictionary<string, UnifiedAbnormalRecord> incidents)
         {
-            var response=JsonFile.Decode<Dictionary<string,object>>(JsonFile.Encode(entry));var incident=FindSequenceIncident(entry,incidents);
-            response["Abnormal"]=incident==null?null:UnifiedDetail(incident,plan);return response;
+            var response = JsonFile.Decode<Dictionary<string,object>>(JsonFile.Encode(entry));
+            var incident = incidents == null ? null : FindSequenceIncident(entry, incidents);
+            response["Abnormal"] = incident == null ? null : UnifiedDetail(incident, plan);
+            return response;
         }
     }
 }

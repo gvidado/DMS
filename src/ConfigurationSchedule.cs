@@ -100,10 +100,31 @@ namespace TelemetryMonitor
             }
             return configurationEditor;
         }
-        private void RefreshConfigurationDirty()
+        private static IEnumerable<string> CommitConfigurationFiles(string path)
         {
-            configurationDirty.Clear();if(configurationEditor==null)return;
-            foreach(string name in ConfigurationFiles){string previous;configurationEditor.Initial.TryGetValue(name,out previous);if(!SameConfigText(previous,ConfigFile(configurationEditor.Root,name)))configurationDirty.Add(name);}
+            if(path=="/api/config")return new[]{"server.json"};
+            if(path.StartsWith("/api/decoders/",StringComparison.Ordinal))return new[]{"decoder.json","continuous-rules.json"};
+            if(path=="/api/continuous-rules/tc")return new[]{"tc-bindings.json"};
+            if(path.StartsWith("/api/continuous-rules/",StringComparison.Ordinal))return new[]{"continuous-rules.json"};
+            if(path.StartsWith("/api/sequence/",StringComparison.Ordinal))return new[]{"sequences.json"};
+            if(path=="/api/send-monitor/config")return new[]{"send-monitor.json"};
+            if(path=="/api/command-send/config")return new[]{"command-send.json"};
+            if(path.StartsWith("/api/send-monitor/commands/",StringComparison.Ordinal))
+                return new[]{"observed-commands.json","tc-bindings.json","sequences.json","continuous-rules.json"};
+            return ConfigurationFiles;
+        }
+
+        private void RefreshConfigurationDirty(IEnumerable<string> files=null)
+        {
+            if(files==null)configurationDirty.Clear();
+            if(configurationEditor==null)return;
+            foreach(string name in files??ConfigurationFiles)
+            {
+                string previous;
+                configurationEditor.Initial.TryGetValue(name,out previous);
+                if(!SameConfigText(previous,ConfigFile(configurationEditor.Root,name)))configurationDirty.Add(name);
+                else configurationDirty.Remove(name);
+            }
         }
         private void PersistConfigurationEditor()
         {
@@ -144,7 +165,7 @@ namespace TelemetryMonitor
                 completed=true;
                 lock(owner.commandGate)
                 {
-                    owner.RefreshConfigurationDirty();owner.configurationSavedAt=BeijingTime.Now.ToString("yyyy-MM-dd HH:mm:ss");owner.configurationError="";
+                    owner.RefreshConfigurationDirty(CommitConfigurationFiles(context.Request.Url.AbsolutePath));owner.configurationSavedAt=BeijingTime.Now.ToString("yyyy-MM-dd HH:mm:ss");owner.configurationError="";
                     try{owner.PersistConfigurationEditor();}catch(Exception ex){owner.configurationError="待生效配置持久化失败："+ex.Message;throw new IOException(owner.configurationError,ex);}
                     bool apply=owner.configurationDirty.Count>0&&!owner.liveMonitor.ConfigurationMonitoringActive;
                     if(apply)

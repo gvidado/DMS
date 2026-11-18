@@ -9,32 +9,16 @@ namespace TelemetryMonitor
     {
         public string RunId,Code,Name,Mode,StartedAt,LastTime,Status;
         public int Events;public long Order;
+        internal SequenceRunSummary Copy(){return (SequenceRunSummary)MemberwiseClone();}
     }
     public sealed partial class Monitor
     {
-        private readonly object sequenceRunSearchGate=new object();
-        private long sequenceRunSearchLength=-1;private DateTime sequenceRunSearchTime;
-        private SequenceRunSummary[] sequenceRunSearchCache=new SequenceRunSummary[0];
         private SequenceRunSummary[] SequenceRunSummaries()
         {
-            lock(sequenceRunSearchGate)
+            lock (sequenceHistoryIndexGate)
             {
-                var before=new FileInfo(SequenceHistoryPath);long length=before.Exists?before.Length:0;DateTime modified=before.Exists?before.LastWriteTimeUtc:DateTime.MinValue;
-                if(length==sequenceRunSearchLength && modified==sequenceRunSearchTime)return sequenceRunSearchCache;
-                var runs=new Dictionary<string,SequenceRunSummary>();long order=0;
-                foreach(var entry in ReadSequenceHistory())
-                {
-                    SequenceRunSummary run;if(!runs.TryGetValue(entry.RunId,out run))
-                    {run=new SequenceRunSummary{RunId=entry.RunId,Code=entry.Code,Name=entry.Sequence,Mode=entry.Mode,StartedAt=entry.Time,Order=order++};runs.Add(entry.RunId,run);}
-                    if(entry.Event=="开始"){run.StartedAt=entry.Time;run.Name=entry.Sequence;run.Mode=entry.Mode;}
-                    if(!String.IsNullOrEmpty(entry.Code))run.Code=entry.Code;
-                    run.Events++;run.LastTime=entry.Time;run.Status=entry.Event=="结束"?entry.Status:entry.Event=="步骤结果"?"运行中":entry.Status;
-                }
-                var result=runs.Values.OrderByDescending(r=>r.Order).ToArray();
-                var after=new FileInfo(SequenceHistoryPath);
-                if((after.Exists?after.Length:0)==length && (after.Exists?after.LastWriteTimeUtc:DateTime.MinValue)==modified)
-                {sequenceRunSearchLength=length;sequenceRunSearchTime=modified;sequenceRunSearchCache=result;}
-                return result;
+                return UpdateSequenceHistoryIndex().Summaries.Values.OrderByDescending(r => r.Order)
+                    .Select(r => r.Copy()).ToArray();
             }
         }
         private static void CheckSequenceHistoryMode(string mode)

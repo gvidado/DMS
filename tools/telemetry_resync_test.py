@@ -67,6 +67,11 @@ def main():
             c.call('/api/selection',dict(ids=list(ids.values())));c.call('/api/control',dict(action='start'));c.call('/api/continuous-rules/control',dict(action='start'))
             send(0x0802,5000,100);send(0x0202,5000,200);send(0x0422,5000,300)
             initial=state();check(initial['accepted']==3 and all(values(initial)[pid]['status']=='有效' for pid in ids.values()),'same IP/APID/sequence is independently accepted by TME, 0202 TMB and 0422 TMB')
+            if not baseline:
+                for pid in ('p0', 'b0', 'b1'):
+                    row = stats(pid, initial)
+                    check(row['lastMatch'] == row['lastValidFrame'] == row['lastParameterUpdate'] and row['lastOutcome'] == '参数已更新',
+                          'same-frame matching, validity and parameter times are independently visible for ' + pid)
             pump_e(.75);check(values()[ids['e']]['status']=='有效' and all(values()[ids[key]]['status']=='过期' for key in ['b0','b1']),'fixture reproduces TME valid while both TMB streams are stale without restarting reception')
             seq=c.call('/api/sequence/config');run=c.call('/api/sequence/control',dict(action='start',id=sid,revision=seq['revision'],requestId=secrets.token_hex(16),runName='TMB回退验证'))['runId']
             wait(lambda:c.call('/api/sequence/state?runId='+run)['rows'][0]['status']=='等待参数','sequence waits for fresh TMB')
@@ -88,6 +93,8 @@ def main():
             check(True,'continuous TMB judgment recovers with the new values')
             before,after=send(0x0202,3125,999)
             check(after['accepted']==before['accepted'] and after['duplicates']==before['duplicates']+1 and values(after)[ids['b0']]['value']=='201','a duplicate of the rebased frame cannot overwrite the value')
+            check(stats('b0',after)['lastParameterUpdate']==stats('b0',before)['lastParameterUpdate']
+                  and '重复' in stats('b0',after)['lastOutcome'],'duplicate records a reason without changing the last parameter update')
             for n in range(3126,3130):send(0x0202,n,n)
             before,after=send(0x0202,3125,999)
             check(after['duplicates']==before['duplicates']+1 and values(after)[ids['b0']]['value']=='3129','the fifth most recent received sequence is still rejected as a duplicate')
@@ -95,6 +102,8 @@ def main():
             check(after['accepted']==before['accepted']+1 and values(after)[ids['b0']]['value']=='2126','a backward sequence outside the five-reception window is accepted and refreshes the real decoded parameter')
             before,after=send(0x0202,3127,777,damaged=True)
             check(after['invalid']==before['invalid']+1 and after['accepted']==before['accepted'] and values(after)[ids['b0']]['value']=='2126','Fletcher failure still rejects data and preserves the previous decoded value')
+            check(stats('b0',after)['lastValidFrame']==stats('b0',before)['lastValidFrame']
+                  and '校验' in stats('b0',after)['lastOutcome'],'checksum failure is visible only on the matching stream')
             before,after=send(0x0202,3127,2127)
             check(after['accepted']==before['accepted']+1 and values(after)[ids['b0']]['value']=='2127','a damaged packet does not poison the recent-five sequence window')
             send(0x0422,16382,310);counter=stats('b1')['outOfOrder']
