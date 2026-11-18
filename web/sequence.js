@@ -8,6 +8,15 @@ window.SequenceUI=(()=>{
   const importGroupField=element('label','sequence-import-group','导入分组');
   importGroupField.insertAdjacentHTML('beforeend','<input id="sequence-import-group" list="sequence-group-names" maxlength="80" placeholder="选择或新建分组" autocomplete="off"><datalist id="sequence-group-names"></datalist>');
   configView.querySelector('#sequence-import-policy').after(importGroupField);
+  configView.querySelector('#sequence-file').multiple=true;
+  configView.querySelector('#sequence-file').setAttribute('aria-label','选择序列Excel文件，可多选');
+  configView.querySelector('#sequence-read').textContent='读取Excel预览（可多选）';
+  const importProgress=element('p','muted small-text');importProgress.setAttribute('role','status');importProgress.id='sequence-import-progress';
+  configView.querySelector('#sequence-import-error').before(importProgress);
+  const selectBatchLabel=element('label','sequence-batch-select hidden');
+  const selectBatch=element('input');selectBatch.type='checkbox';
+  selectBatchLabel.append(selectBatch,document.createTextNode('勾选全部通过项'));
+  configView.querySelector('#sequence-import-sheets').before(selectBatchLabel);
   const previewMeta=element('div','section-pad');
   previewMeta.innerHTML='<div class="sequence-form-grid"><label>序列名称<input id="sequence-preview-name" maxlength="240" autocomplete="off" disabled><small class="muted">修改名称后需重新检测。</small></label><label>保存分组<input id="sequence-preview-group" list="sequence-group-names" maxlength="80" placeholder="留空为未分组" autocomplete="off" disabled><small class="muted">可选择已有分组或输入新分组。</small></label></div>';
   configView.querySelector('#sequence-preview-rows').closest('.table-scroll').before(previewMeta);
@@ -35,7 +44,7 @@ window.SequenceUI=(()=>{
   startDialog.innerHTML=`<div class="dialog-heading"><h2>序列预览</h2><button id="sequence-start-close" class="icon-button" aria-label="关闭启动确认">×</button></div><form id="sequence-start-form" class="section-pad"><p id="sequence-start-error" class="form-error" role="alert" hidden></p><div class="import-action-line"><button id="sequence-start-cancel" type="button" class="button">取消</button><button id="sequence-start-confirm" type="submit" class="button primary">确认并开始</button></div></form>`;document.body.append(startDialog);
   const importCancel=element('button','button','取消');importCancel.id='sequence-import-cancel';importCancel.type='button';$('sequence-convert').after(importCancel);
   const importClear=addExcelImportClear('sequence-import-clear','sequence-file',importCancel,()=>resetSequenceImport(false));
-  let importReading=false;
+  let importReading=false,importToken='';
   let pendingStart=null,startSettingsFor='';
   const startOptions=element('div','sequence-start-settings');
   startOptions.innerHTML='<label>本次运行名称<input id="sequence-run-name" maxlength="128" required autocomplete="off"></label><label>起始原表行号<input id="sequence-start-row" type="number" min="1" step="1" placeholder="留空从第一项开始" autocomplete="off"></label><label>T0已过去秒数<input id="sequence-start-t0" maxlength="80" placeholder="如T0=10" autocomplete="off"></label><label>F已过去秒数<input id="sequence-start-f0" maxlength="80" placeholder="如F0=20" autocomplete="off"></label>';
@@ -180,7 +189,12 @@ window.SequenceUI=(()=>{
     appendRow.disabled=busy||!preview||!previewDefinition||(previewDefinition.Rows?.length||0)>=5000;
     for(const input of $('sequence-preview-rows').querySelectorAll('textarea'))input.disabled=busy||configActive;
     for(const button of $('sequence-preview-rows').querySelectorAll('button'))button.disabled=busy||button.dataset.insert==='true'&&previewDefinition.Rows.length>=5000;
-    $('sequence-apply').disabled=busy||configActive||editing||dirtySheets.size>0||!preview||![...document.querySelectorAll('.sequence-sheet-check:checked')].length;
+    const sheets=[...$('sequence-import-sheets').querySelectorAll('.sequence-sheet-check:not(:disabled)')];
+    const checked=sheets.filter(sheet=>sheet.checked).length;
+    selectBatchLabel.classList.toggle('hidden',editing||sheets.length<2);
+    selectBatch.disabled=busy||configActive;selectBatch.checked=sheets.length>0&&checked===sheets.length;
+    selectBatch.indeterminate=checked>0&&checked<sheets.length;
+    $('sequence-apply').disabled=busy||configActive||editing||dirtySheets.size>0||!preview||!checked;
     $('sequence-delete').disabled=busy||configActive||!$('sequence-config-select').value;
     $('sequence-start').disabled=busy||!$('sequence-run-select').value||!!config?.error;
     if(startDialog.open)$('sequence-start-confirm').disabled=busy||startPreviewLoading||!startPreviewData||!!startPreviewData.errors.length||app.state?.mode!=='live';
@@ -188,14 +202,19 @@ window.SequenceUI=(()=>{
     const selected=config?.definitions.find(d=>d.Id===$('sequence-run-select').value);$('sequence-start').textContent=selected?'预览并启动'+modeName(selected.Mode):'预览并启动序列';
     $('sequence-send-note').textContent=selected?.Mode==='execute'?'本序列按已保存步骤发送：空白期望时间默认1秒，最短间隔0.2秒；并行段内部仍只监视指令。':'本序列不主动发送指令；按标志和期望执行时间等待，到时才开始判读或监视，空白立即开始，判据超时从实际开始计算。';
   }
+  selectBatch.addEventListener('change',()=>{
+    for(const sheet of $('sequence-import-sheets').querySelectorAll('.sequence-sheet-check:not(:disabled)'))sheet.checked=selectBatch.checked;
+    controls();
+  });
   function revokeSequencePreview(token){if(token)api('sequence/preview/cancel',{token}).catch(()=>{});}
+  function releaseSequencePreview(){revokeSequencePreview(importToken||preview?.token);importToken='';}
   function resetSequenceImport(cancelled){
     if(busy&&!importReading)return;if(importReading){importReading=false;busy=false;}
     $('sequence-file').value='';$('sequence-import-error').textContent='';$('sequence-conversion-report').replaceChildren();invalidate();previewPage=1;drawPreview();
     $('sequence-validation').textContent=cancelled?'已取消读取，已保存序列未修改。':'已清空本次读取，已保存序列未修改。';toast(cancelled?'已取消序列读取与转换':'已清空序列读取与转换结果');
   }
   importCancel.addEventListener('click',()=>resetSequenceImport(true));
-  function invalidate(){if(importReading){importReading=false;busy=false;}revokeSequencePreview(preview?.token);$('sequence-preview-name').value='';$('sequence-preview-group').value='';$('sequence-conversion-panel').classList.add('hidden');dirtySheets.clear();groupEdits.clear();preview=null;previewDefinition=null;previewEpoch++;$('sequence-import-sheets').replaceChildren();$('sequence-validation').textContent='配置已改变，请重新读取或检查已保存序列。';empty($('sequence-preview-rows'),8,'等待读取');controls();}
+  function invalidate(){if(importReading){importReading=false;busy=false;}releaseSequencePreview();importProgress.textContent='';$('sequence-preview-name').value='';$('sequence-preview-group').value='';$('sequence-conversion-panel').classList.add('hidden');dirtySheets.clear();groupEdits.clear();preview=null;previewDefinition=null;previewEpoch++;$('sequence-import-sheets').replaceChildren();$('sequence-validation').textContent='配置已改变，请重新读取或检查已保存序列。';empty($('sequence-preview-rows'),8,'等待读取');controls();}
   function drawConfig(value){
     config=value;const configId=$('sequence-config-select').value;runSelections[$('sequence-launch-mode').value]=$('sequence-run-select').value||runSelections[$('sequence-launch-mode').value];
     $('sequence-config-select').replaceChildren(new Option('新建导入',''),...groupedSequenceOptions(value.definitions,true));
@@ -244,7 +263,7 @@ window.SequenceUI=(()=>{
     if(!rows.length)empty(body,9,editable?'当前没有行，可点击“末尾添加一行”；至少保留一条有效行才能保存。':'等待读取');$('sequence-preview-page').textContent=`${previewPage} / ${pages} · ${rows.length}项`;$('sequence-preview-prev').disabled=previewPage===1;$('sequence-preview-next').disabled=previewPage===pages;
   }
   async function savedDefinition(){
-    if(importReading){importReading=false;busy=false;}revokeSequencePreview(preview?.token);
+    if(importReading){importReading=false;busy=false;}releaseSequencePreview();importProgress.textContent='';
     const id=$('sequence-config-select').value,epoch=++previewEpoch;preview=null;previewDefinition=null;dirtySheets.clear();groupEdits.clear();$('sequence-import-sheets').replaceChildren();$('sequence-import-error').textContent='';drawPreview();controls();
     if(!id)return;
     try{const result=await api('sequence/edit-preview',{id,revision:config.revision});if(epoch!==previewEpoch)return;
@@ -280,26 +299,48 @@ window.SequenceUI=(()=>{
       let result;
       try{result=await response.json();}
       catch(error){throw new Error('服务器未返回完整的序列检查结果（HTTP '+response.status+'），请查看服务器运行日志后重试。');}
-      if(!response.ok)throw new Error(result.error || '服务器拒绝读取（HTTP '+response.status+'）');
+      if(!response.ok)throw Object.assign(new Error(result.error || '服务器拒绝读取（HTTP '+response.status+'）'),{status:response.status});
       if(!Array.isArray(result.definitions))throw new Error('服务器返回的序列检查结果格式不完整，请刷新页面后重试。');
       return result;
     }finally{clearTimeout(timer);}
   }
   async function read(convert=false){
     if(busy)return;
-    const file=$('sequence-file').files[0];$('sequence-import-error').textContent='';
-    if(!file){$('sequence-import-error').textContent='读取失败：请选择.xlsx序列文件。';return;}
+    const files=[...$('sequence-file').files];$('sequence-import-error').textContent='';
+    if(!files.length){$('sequence-import-error').textContent='读取失败：请选择.xlsx序列文件。';return;}
+    if(convert&&files.length>1){$('sequence-import-error').textContent='转换小工具每次处理一份Excel。请只选择一份文件后再转换。';return;}
     invalidate();busy=true;importReading=true;const epoch=generation,request=previewEpoch;controls();
+    const stillReading=()=>epoch===generation&&request===previewEpoch;
+    const result={token:'',definitions:[],conversion:[],fileErrors:[],fileCount:files.length,passedFiles:0};
+    const settings=new URLSearchParams({mode:$('sequence-mode').value,sourceIP:$('sequence-source').value,timeout:$('sequence-timeout').value,group:$('sequence-import-group').value});
+    if(convert)settings.set('convert','commands');
+    if(files.length>1)settings.set('batch','1');
     try{
-      if(!/\.xlsx$/i.test(file.name))throw new Error('文件格式不支持，请选择.xlsx序列文件。');
-      if(file.size===0)throw new Error('文件内容为空，请重新选择有效的.xlsx文件。');
-      if(file.size>64*1024*1024)throw new Error('文件超过64MB，请减少工作表内容后重试。');
-      const query=new URLSearchParams({filename:file.name,mode:$('sequence-mode').value,sourceIP:$('sequence-source').value,timeout:$('sequence-timeout').value,group:$('sequence-import-group').value});
-      if(convert)query.set('convert','commands');
-      const result=await sequenceUpload(file,query);if(epoch!==generation||request!==previewEpoch){revokeSequencePreview(result.token);return;}
-      dirtySheets.clear();drawImport(result);toast(result.conversion?.some(record=>record.warning)?'已读取，存在需人工核对的转换项，请查看转换报告':result.definitions.some(item=>item.errors.length)?'已读取，请在预览中修改错误后重新检测':'已读取预览，可修改并重新检测');
-    }catch(e){if(epoch===generation&&request===previewEpoch)$('sequence-import-error').textContent=file.name+'：读取失败。'+e.message;}
-    finally{if(epoch===generation&&request===previewEpoch){importReading=false;busy=false;controls();}}
+      for(const [index,file] of files.entries()){
+        importProgress.textContent=`正在读取 ${index+1} / ${files.length} · ${file.name}`;
+        try{
+          if(!/\.xlsx$/i.test(file.name))throw new Error('文件格式不支持，请选择.xlsx序列文件。');
+          if(!file.size)throw new Error('文件内容为空，请重新选择有效的.xlsx文件。');
+          if(file.size>8*1024*1024)throw new Error('单个文件最大8MB，请减小文件后重试。');
+          const query=new URLSearchParams(settings);query.set('filename',file.name);
+          if(result.token)query.set('batchToken',result.token);
+          const workbook=await sequenceUpload(file,query);
+          if(!stillReading()){revokeSequencePreview(workbook.token);return;}
+          result.token=importToken=workbook.token;
+          result.definitions.push(...workbook.definitions);result.conversion.push(...(workbook.conversion||[]));result.passedFiles++;
+        }catch(error){
+          if(!stillReading())return;
+          if(result.token&&error.status===409)throw error;
+          result.fileErrors.push(file.name+'：读取失败。'+error.message);
+        }
+      }
+      importProgress.textContent=files.length>1?`已读取 ${result.passedFiles} / ${files.length} 份 Excel · ${result.definitions.length} 条序列`:'';
+      if(!result.passedFiles){$('sequence-import-error').textContent=result.fileErrors.join('\n');return;}
+      importToken='';drawImport(result);
+      toast(result.fileErrors.length?'已读取可用文件，请查看失败原因':result.conversion.some(record=>record.warning)?'已读取，存在需人工核对的转换项，请查看转换报告':result.definitions.some(item=>item.errors.length)?'已读取，请在预览中修改错误后重新检测':'已读取预览，可修改并重新检测');
+    }catch(error){
+      if(stillReading()){releaseSequencePreview();importProgress.textContent='';$('sequence-import-error').textContent=error.message;}
+    }finally{if(stillReading()){importReading=false;busy=false;controls();}}
   }
   function drawImport(result){
     const previousId=previewDefinition?.Id,selected=new Map([...document.querySelectorAll('.sequence-sheet-check')].map(c=>[c.value,c.checked]));
@@ -307,7 +348,10 @@ window.SequenceUI=(()=>{
     $('sequence-conversion-report').replaceChildren(...conversion.map(record=>element('p',record.warning?'small-text error-text':'small-text',(sequenceNames.get(record.sheet)||record.sheet)+' 第'+record.row+'行 · '+record.status+' · '+(record.before||'（空）')+' → '+(record.after||'（空）')+(record.keywordBefore!==record.keywordAfter?' · 关键字 '+(record.keywordBefore||'（空）')+' → '+(record.keywordAfter||'（空）'):'')+(record.markBefore!==record.markAfter?' · 标志 '+(record.markBefore||'（空）')+' → '+(record.markAfter||'（空）'):'')+(record.reason?' · '+record.reason:''))));
     if(conversion.some(record=>record.warning))$('sequence-conversion-panel').open=true;
     preview=result;const container=$('sequence-import-sheets');container.replaceChildren();const failures=[];
+    let currentFilename='';
     for(const item of result.definitions){
+      const filename=item.definition.Filename;
+      if(result.fileCount>1&&filename!==currentFilename){container.append(element('h3','sequence-import-source',filename));currentFilename=filename;}
       const line=element('div','sequence-sheet-line'),label=element('label'),check=element('input');check.type='checkbox';check.className='sequence-sheet-check';check.value=item.definition.Id;check.checked=item.errors.length===0&&(selected.get(item.definition.Id)??true);check.disabled=item.errors.length>0||dirtySheets.has(item.definition.Id);check.addEventListener('change',controls);
       const group=element('span','muted small-text',previewGroup(item.definition).trim()||'未分组');group.id='sequence-sheet-group-'+item.definition.Id;
       label.append(check,document.createTextNode(item.definition.Name+' · '+(item.definition.Code||'保存时分配序列号')+' · '+item.definition.Rows.length+'项 · '+item.errors.length+'项错误'+(dirtySheets.has(item.definition.Id)?' · 待重新检测':'')+' · '),group);
@@ -316,13 +360,14 @@ window.SequenceUI=(()=>{
     }
     const current=result.definitions.find(item=>item.definition.Id===previousId)||result.definitions[0];previewDefinition=current?.definition||null;
     if(current)validation(current);drawPreview();
-    $('sequence-import-error').textContent=(dirtySheets.size?'还有修改尚未重新检测。\n':'')+(failures.length?'已读取，发现'+failures.length+'项配置错误；请在预览中修改后重新检测。\n'+failures.join('\n'):'');controls();
+    $('sequence-import-error').textContent=[...(result.fileErrors||[]),...(dirtySheets.size?['还有修改尚未重新检测。']:[]),...(failures.length?['已读取，发现'+failures.length+'项配置错误；请在预览中修改后重新检测。',...failures]:[])].join('\n');controls();
   }
   async function recheck(){
     if(busy||!preview||!previewDefinition)return;const epoch=generation,request=previewEpoch,id=previewDefinition.Id;
     busy=true;controls();
     try{
       const result=await api('sequence/recheck',{token:preview.token,id,name:previewDefinition.Name,rows:previewDefinition.Rows,nextRowNumber:previewDefinition.NextRowNumber||undefined});if(epoch!==generation||request!==previewEpoch)return;
+      result.fileErrors=preview.fileErrors;result.fileCount=preview.fileCount;
       for(const item of preview.definitions)if(item.definition.Id!==id&&dirtySheets.has(item.definition.Id)){const index=result.definitions.findIndex(d=>d.definition.Id===item.definition.Id);if(index>=0)result.definitions[index]=item;}
       dirtySheets.delete(id);drawImport(result);toast('重新检测完成，请查看错误提示和工作表勾选状态');
     }catch(error){if(epoch===generation)$('sequence-import-error').textContent='重新检测失败：'+error.message;}
@@ -350,11 +395,14 @@ window.SequenceUI=(()=>{
   });
 
   async function saveImport(){
-    if(!preview||dirtySheets.size)return;busy=true;controls();const epoch=generation;
+    if(busy||!preview||dirtySheets.size)return;
+    const mode=$('sequence-import-policy').value;
+    if(mode==='replace'&&preview.fileErrors?.length&&!confirm('部分文件读取失败。确定用当前勾选的序列替换全部已保存序列？'))return;
+    busy=true;controls();const epoch=generation;
     try{
       const ids=[...document.querySelectorAll('.sequence-sheet-check:checked')].map(c=>c.value);
       const groups=Object.fromEntries(ids.filter(id=>groupEdits.has(id)).map(id=>[id,groupEdits.get(id)]));
-      const value=await api('sequence/apply',{token:preview.token,ids,mode:$('sequence-import-policy').value,groups});
+      const value=await api('sequence/apply',{token:preview.token,ids,mode,groups});
       if(epoch!==generation)return;
       invalidate();drawConfig(value);$('sequence-config-select').value=ids[0];
       const saved=value.definitions.find(d=>d.Id===ids[0]);
@@ -475,7 +523,7 @@ window.SequenceUI=(()=>{
   window.addEventListener('abnormal-records-changed',()=>{if(app.user&&runViewActive())history();});
   function render(){if(!app.user)return;const now=Date.now();if(!['sequence-config','sequence-run','sequence-execute'].includes(app.view))return;activateRunMode();if(now-lastRefresh>700){lastRefresh=now;pollLaunch();if(runViewActive()&&activeTask)refreshRun();}if(runViewActive()&&now-lastHistory>4000){lastHistory=now;history();}}
   function reset(){
-    groupEdits.clear();$('sequence-import-group').value='';$('sequence-group-names').replaceChildren();
+    importToken='';importProgress.textContent='';groupEdits.clear();$('sequence-import-group').value='';$('sequence-group-names').replaceChildren();
     taskRows=[];taskSession='';activeTask='';historyFocused=false;taskPolling=false;taskPollRequest++;taskSelectionRevision++;closedTasks.clear();taskPages.clear();taskFocusPages.clear();drawTaskTabs();launchPanel.classList.remove('hidden');detailPanel.classList.add('hidden');pendingCalledTask='';runSelections.judge=runSelections.execute='';historySearch='';runListPage=runListPages=1;nextRunList=0;runListRequest++;historyRequest++;runListLoading=false;$('sequence-history-search').value='';$('sequence-history-result').value='all';$('sequence-history-scope').replaceChildren(new Option('全部匹配运行','all'),new Option('当前运行','current'));$('sequence-runs-page').textContent='';$('sequence-history-filter-error').textContent='';$('sequence-conversion-panel').classList.add('hidden');dirtySheets.clear();$('sequence-import-error').textContent='';generation++;importReading=false;startDialog.close();pendingStart=null;syncStartSettings(null);previewEpoch++;config=preview=previewDefinition=runtime=null;busy=loading=false;runPage=previewPage=historyPage=1;lastRefresh=lastHistory=0;configDirty=false;$('sequence-file').value='';$('sequence-import-sheets').replaceChildren();$('sequence-summary').replaceChildren();$('sequence-t0').replaceChildren();$('sequence-validation').textContent='等待读取';for(const id of ['sequence-run-error','sequence-config-error'])$(id).textContent='';for(const id of ['sequence-config-select','sequence-run-select'])$(id).replaceChildren();empty($('sequence-run-rows'),10,'等待登录');empty($('sequence-history-rows'),9,'等待登录');empty($('sequence-history-run-list'),6,'等待登录');drawPreview();controls();
   }
   $('sequence-launch-mode').addEventListener('change',()=>{fillRunOptions();if(!activeTask)runMode=$('sequence-launch-mode').value;controls();});

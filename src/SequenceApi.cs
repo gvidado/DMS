@@ -9,7 +9,7 @@ using System.Threading;
 namespace TelemetryMonitor
 {
     internal sealed class SequenceImportPreview
-    {public string Token,Username,Revision,EditId;public DateTime Created;public double Timeout;public List<SequenceDefinition> Definitions;public List<SequenceConversionEntry> Conversion=new List<SequenceConversionEntry>();}
+    {public string Token,Username,Revision,EditId;public DateTime Created;public double Timeout;public bool Appendable;public List<SequenceDefinition> Definitions;public List<SequenceConversionEntry> Conversion=new List<SequenceConversionEntry>();}
     public sealed partial class Server
     {
         private Timer sequenceTimer;
@@ -61,19 +61,40 @@ namespace TelemetryMonitor
             {
                 DateTime requestedAt=DateTime.UtcNow;
                 string filename=Path.GetFileName(Query(ctx.Request,"filename")),mode=Query(ctx.Request,"mode"),source=Query(ctx.Request,"sourceIP");double timeout;
+                string batchToken=Query(ctx.Request,"batchToken");
+                bool convert=Query(ctx.Request,"convert")=="commands";
                 if(!filename.EndsWith(".xlsx",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("请选择.xlsx序列文件");if(!Double.TryParse(Query(ctx.Request,"timeout"),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out timeout))timeout=0;
                 string group=Monitor.CheckSequenceGroup(Query(ctx.Request,"group"));
                 var definitions=WorkbookReader.ReadSequences(BinaryBody(ctx.Request),filename,mode);
                 foreach(var definition in definitions){definition.SourceIP=source;definition.Group=group;}
                 lock(commandGate)
                 {
-                    var conversion=Query(ctx.Request,"convert")=="commands"?monitor.ConvertSequenceCommands(definitions):new List<SequenceConversionEntry>();
+                    SequenceImportPreview preview=null;
+                    string revision=monitor.SequenceConfigurationRevision;
+                    if(batchToken.Length>0)
+                    {
+                        if(!sequencePreviews.TryGetValue(batchToken,out preview)||preview.Username!=session.Username||!preview.Appendable||
+                            (DateTime.UtcNow-preview.Created).TotalMinutes>10)
+                            throw new InvalidOperationException("批量预览已过期，请重新读取整批文件");
+                        if(preview.Revision!=revision||preview.Timeout!=timeout||convert)
+                            throw new InvalidOperationException("序列配置已变化，请重新读取整批文件");
+                        if(preview.Definitions.Count+definitions.Count>Monitor.MaximumSequences)
+                            throw new ArgumentException("加入此文件后，预览序列会超过"+Monitor.MaximumSequences+"条，请分批导入");
+                    }
+                    var conversion=convert?monitor.ConvertSequenceCommands(definitions):new List<SequenceConversionEntry>();
                     monitor.AnnotateImportedSequenceCommands(definitions);
-                    foreach(string key in sequencePreviews.Where(p=>(p.Value.Username==session.Username&&p.Value.Created<=requestedAt) || (DateTime.UtcNow-p.Value.Created).TotalMinutes>10).Select(p=>p.Key).ToArray())sequencePreviews.Remove(key);
-                    if(sequencePreviews.Count>=16)throw new InvalidOperationException("当前导入预览较多，请稍后再试");
-                    var config=JsonFile.Decode<Dictionary<string,object>>(JsonFile.Encode(monitor.SequenceConfigurationInfo()));
-                    var preview=new SequenceImportPreview{Token=Auth.RandomToken(),Username=session.Username,Revision=Convert.ToString(config["revision"]),Created=DateTime.UtcNow,Timeout=timeout,Definitions=definitions,Conversion=conversion};
-                    var checkedDefinitions=definitions.Select(d=>monitor.SequenceValidate(d,timeout)).ToArray();sequencePreviews[preview.Token]=preview;Json(ctx.Response,new{token=preview.Token,definitions=checkedDefinitions,conversion},200);
+                    var checkedDefinitions=definitions.Select(d=>monitor.SequenceValidate(d,timeout)).ToArray();
+                    if(preview==null)
+                    {
+                        foreach(string key in sequencePreviews.Where(p=>(p.Value.Username==session.Username&&p.Value.Created<=requestedAt) || (DateTime.UtcNow-p.Value.Created).TotalMinutes>10).Select(p=>p.Key).ToArray())sequencePreviews.Remove(key);
+                        if(sequencePreviews.Count>=16)throw new InvalidOperationException("当前导入预览较多，请稍后再试");
+                        preview=new SequenceImportPreview{Token=Auth.RandomToken(),Username=session.Username,Revision=revision,Timeout=timeout,Definitions=definitions,Conversion=conversion,Appendable=!convert&&Query(ctx.Request,"batch")=="1"};
+                        sequencePreviews.Add(preview.Token,preview);
+                    }
+                    else preview.Definitions.AddRange(definitions);
+                    preview.Created=DateTime.UtcNow;
+                    // A batch reply carries only the newly read workbook. The token saves all selected definitions together.
+                    Json(ctx.Response,new{token=preview.Token,definitions=checkedDefinitions,conversion},200);
                 }
                 return true;
             }

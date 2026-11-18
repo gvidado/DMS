@@ -1,6 +1,6 @@
 using System.Reflection;
 
 [assembly: AssemblyTitle("数据判读系统")]
-[assembly: AssemblyVersion("0.10.29.0")]
-[assembly: AssemblyFileVersion("0.10.29.0")]
-[assembly: AssemblyInformationalVersion("0.10.29")]
+[assembly: AssemblyVersion("0.10.30.0")]
+[assembly: AssemblyFileVersion("0.10.30.0")]
+[assembly: AssemblyInformationalVersion("0.10.30")]

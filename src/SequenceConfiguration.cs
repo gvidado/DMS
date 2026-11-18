@@ -11,8 +11,10 @@ namespace TelemetryMonitor
     {
         private SequenceConfiguration sequenceConfiguration=new SequenceConfiguration{Revision=Guid.NewGuid().ToString("N")};
         private string sequenceStorageError="";
+        internal const int MaximumSequences=128;
         private const double SequenceExpectedDefault=1.0,SequenceMinimumInterval=0.2;
         private string SequenceConfigPath {get{return Path.Combine(root,"config","sequences.json");}}
+        internal string SequenceConfigurationRevision {get{lock(Gate)return sequenceConfiguration.Revision;}}
         private void InitializeSequences()
         {
             if(File.Exists(SequenceConfigPath))try
@@ -31,7 +33,7 @@ namespace TelemetryMonitor
         private static T SequenceClone<T>(T value){return JsonFile.Decode<T>(JsonFile.Encode(value));}
         private static void CheckSequenceConfig(SequenceConfiguration value)
         {
-            if(value==null || value.SchemaVersion!=1 || value.Sequences==null || value.Sequences.Count>128)throw new ArgumentException("序列配置格式无效或超过128个序列");
+            if(value==null || value.SchemaVersion!=1 || value.Sequences==null || value.Sequences.Count>MaximumSequences)throw new ArgumentException("序列配置格式无效或超过"+MaximumSequences+"个序列");
             CheckSequenceTimeout(value.DefaultTimeoutSeconds);
             if(value.Sequences.Any(d=>d==null || !Regex.IsMatch(d.Id??"",@"^[a-f0-9]{32}$") || d.Rows==null || d.Rows.Count>5000 || d.Rows.Any(r=>r==null)) || value.Sequences.Select(d=>d.Id).Distinct().Count()!=value.Sequences.Count)throw new ArgumentException("序列标识、行数或数据无效");
             foreach(var definition in value.Sequences)definition.Group=CheckSequenceGroup(definition.Group);
@@ -184,6 +186,8 @@ namespace TelemetryMonitor
             lock(Gate)
             {
                 EnsureSequenceIdle();if(sequenceStorageError.Length>0)throw new InvalidOperationException(sequenceStorageError);if(revision!=sequenceConfiguration.Revision)throw new InvalidOperationException("序列配置已变化，请重新读取预览");
+                int kept=replace?0:sequenceConfiguration.Sequences.Count;
+                if(kept+incoming.Count>MaximumSequences)throw new ArgumentException("序列库最多保存"+MaximumSequences+"条，当前保留"+kept+"条，请减少勾选项");
                 var copy=SequenceClone(sequenceConfiguration);copy.DefaultTimeoutSeconds=timeout;if(replace)copy.Sequences.Clear();
                 foreach(var definition in incoming)
                 {

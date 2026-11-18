@@ -55,6 +55,72 @@ try{
   await runSelect.locator('optgroup[label="批次一"]').waitFor({state:'attached'});
   assert.equal(await runSelect.locator('optgroup[label="专项二"] option').textContent(),'XLP0003 · 乙序列');
   assert.equal(await runSelect.locator('optgroup[label="（未分组）"] option').textContent(),'XLP0001 · 旧版序列');
-  assert.deepEqual(errors,[]);
   console.log('PASS Excel batch groups, per-sequence overrides, unselected sheets, editing and grouped launch');
+
+  await page.evaluate(()=>navigate('sequence-config',true));
+  await page.locator('#sequence-file').setInputFiles(input.batch);
+  await page.locator('#sequence-import-group').fill('批量默认');
+  await page.locator('#sequence-read').click();
+  await sheets.nth(2).waitFor();
+  assert.match(await page.locator('#sequence-import-progress').textContent(),/已读取 2 \/ 3/);
+  assert.deepEqual(await page.locator('.sequence-import-source').allTextContents(),['批量甲.xlsx','批量乙.xlsx']);
+  assert.match(await page.locator('#sequence-import-error').textContent(),/无法读取\.xlsx/);
+  const invalid=sheets.filter({hasText:'需修正'});
+  assert(await invalid.locator('input').isDisabled());
+  await invalid.locator('button').click();
+  await group.fill('批量单项');
+  await page.locator('textarea[data-field="Keyword"]').fill('TEXT');
+  await page.locator('#sequence-recheck').click();
+  await page.waitForFunction(()=>!document.querySelector('#sequence-apply').disabled);
+  assert.match(await page.locator('#sequence-import-error').textContent(),/无法读取\.xlsx/);
+  assert.equal(await group.inputValue(),'批量单项');
+  const selectAll=page.getByLabel('勾选全部通过项');
+  await selectAll.click();
+  assert.equal(await page.locator('.sequence-sheet-check:checked').count(),3);
+  await selectAll.uncheck();
+  assert(await page.locator('#sequence-apply').isDisabled());
+  await sheets.filter({hasText:'批量甲 / 同名页'}).locator('input').check();
+  await invalid.locator('input').check();
+  const mode=page.locator('#sequence-import-policy');
+  await mode.selectOption('replace');
+  const confirming=new Promise(resolve=>page.once('dialog',async dialog=>{await dialog.dismiss();resolve(dialog.message());}));
+  await page.locator('#sequence-apply').click();
+  assert.match(await confirming,/部分文件读取失败/);
+  assert.equal(await configSelect.locator('option').count(),4);
+  await mode.selectOption('add');
+  await page.locator('#sequence-apply').click();
+  await page.waitForFunction(()=>document.querySelectorAll('#sequence-config-select option').length===6);
+  await page.waitForFunction(()=>!document.querySelector('#sequence-read').disabled);
+  assert.match(await configSelect.textContent(),/批量乙 \/ 需修正/);
+  assert.doesNotMatch(await configSelect.textContent(),/批量乙 \/ 同名页/);
+  console.log('PASS multiple workbooks, partial errors, recheck, select all, and a single save of the selected sheets');
+
+  const uploadRoute='**/api/sequence/preview?*';
+  let finish,held;
+  const waiting=new Promise(resolve=>held=resolve);
+  await page.route(uploadRoute,async route=>{
+    const response=await route.fetch();
+    if(new URL(route.request().url()).searchParams.get('batchToken')){
+      const result=await response.json();
+      await new Promise(resolve=>{finish=resolve;held(result);});
+    }
+    await route.fulfill({response});
+  });
+  await page.locator('#sequence-file').setInputFiles(input.batch.slice(1));
+  await page.locator('#sequence-read').click();
+  const pending=await waiting;
+  assert(pending.token);
+  await page.locator('#sequence-import-cancel').click();
+  finish();
+  await page.unrouteAll({behavior:'wait'});
+  const cancellation=await page.evaluate(async ({token,definitions})=>{
+    const definition=definitions[0].definition;
+    const response=await fetch('/api/sequence/recheck',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':app.user.csrf},body:JSON.stringify({token,id:definition.Id,rows:definition.Rows})});
+    return (await response.json()).error;
+  },pending);
+  assert.match(cancellation,/预览已过期/);
+  assert.equal(await sheets.count(),0);
+  assert.equal(await configSelect.locator('option').count(),6);
+  assert.deepEqual(errors,[]);
+  console.log('PASS cancelling a multi-file read revokes the whole draft and ignores the delayed response');
 }finally{await browser.close();}

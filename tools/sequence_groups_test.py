@@ -31,6 +31,13 @@ def main():
         config_path.write_text(json.dumps(dict(Revision='legacy', NextJudgeNumber=2, Sequences=[legacy])), encoding='utf-8')
         workbook = root / '分组.xlsx'
         workbook.write_bytes(xlsx([(sheet, [['TEXT', sheet, '', '', '', '', '']]) for sheet in ('甲', '乙', '丙')]))
+        broken = root / '无法读取.xlsx'
+        broken.write_bytes(b'not an xlsx')
+        first_batch = root / '批量甲.xlsx'
+        first_batch.write_bytes(xlsx([('同名页', [['TEXT', '第一份工作簿', '', '', '', '', '']])]))
+        second_batch = root / '批量乙.xlsx'
+        second_batch.write_bytes(xlsx([('需修正', [['UNKNOWN', '第二份工作簿', '', '', '', '', '']]),
+                                       ('同名页', [['TEXT', '取消勾选的工作表', '', '', '', '', '']])]))
         password = secrets.token_urlsafe(20)
         process = None
 
@@ -65,7 +72,8 @@ def main():
             info = client.call('/api/sequence/config')
             assert info['definitions'][0]['Group'] == '' and info['definitions'][0]['Code'] == 'XLP0001'
             auth = root / 'browser-input.json'
-            auth.write_text(json.dumps(dict(base=client.base, password=password, workbook=str(workbook), oldId=old_id)), encoding='utf-8')
+            auth.write_text(json.dumps(dict(base=client.base, password=password, workbook=str(workbook), oldId=old_id,
+                                            batch=[str(broken), str(first_batch), str(second_batch)])), encoding='utf-8')
             subprocess.run([os.environ.get('DMS_BROWSER_NODE', 'node'), str(ROOT / 'tools/sequence_groups_browser.mjs'), str(auth)],
                            check=True, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW)
             saved = config_path.read_bytes()
@@ -74,7 +82,8 @@ def main():
             assert config_path.read_bytes() == saved
             before = client.call('/api/sequence/config')
             assert {row['Name']: row['Group'] for row in before['definitions']} == {
-                '旧版序列': '', '分组 / 甲': '批次一', '乙序列': '专项二'}
+                '旧版序列': '', '分组 / 甲': '批次一', '乙序列': '专项二',
+                '批量甲 / 同名页': '批量默认', '批量乙 / 需修正': '批量单项'}
             old = client.call('/api/sequence/definition?id=' + old_id)['definition']
             client.call('/api/control', dict(action='start'))
             run = client.call('/api/sequence/control', dict(action='start', id=old_id, revision=before['revision'],
