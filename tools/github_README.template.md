@@ -4,7 +4,7 @@
 
 **当前版本：V{{VERSION}}** · Windows 10 · 浏览器内网访问 · 无需数据库
 
-[下载最新版本](https://github.com/gvidado/DMS/releases/latest) · [版本记录](CHANGELOG.md) · [使用说明书](https://github.com/gvidado/DMS/releases/download/v{{VERSION}}/DMS-v{{VERSION}}-user-manual.docx) · [问题反馈](https://github.com/gvidado/DMS/issues)
+[下载最新版本](https://github.com/gvidado/DMS/releases/latest) · [版本记录](CHANGELOG.md) · [使用说明书](https://github.com/gvidado/DMS/releases/download/v{{VERSION}}/DMS-v{{MANUAL_VERSION}}-user-manual.docx) · [问题反馈](https://github.com/gvidado/DMS/issues)
 
 ## 系统解决什么问题
 
@@ -77,7 +77,7 @@ EndResultRegion
 | --- | --- |
 | `DMS-v{{VERSION}}-windows-offline.zip` | 新部署，内含空配置和默认监听设置 |
 | `DMS-v{{VERSION}}-windows-upgrade.zip` | 更新现有部署，保留现场config、data和logs |
-| `DMS-v{{VERSION}}-user-manual.docx` | 完整使用说明，含界面截图和判读语法 |
+| `DMS-v{{MANUAL_VERSION}}-user-manual.docx` | 完整使用说明，适用V{{MANUAL_VERSION}}；后续变化见对应版本说明 |
 | `SHA256SUMS.txt` | 发布附件的SHA-256校验值 |
 
 1. 在Windows10解压完整离线包，运行“本机预览.cmd”或“启动服务器.cmd”。

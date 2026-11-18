@@ -83,14 +83,15 @@ def checked_zip(path,prefix,exe,web):
         if any(n.startswith('config/') for n in names):raise RuntimeError('Upgrade must preserve现场config')
     return None
 
-def prepare(project,repo,include_dsh=False):
+def prepare(project,repo,include_dsh=False,release_executable=None):
     check_repo(repo);v=version(project);release=repo.parent/'releases'/('v'+v);release.mkdir(parents=True,exist_ok=True)
     offline=project.parent/'离线包'/('自动判读系统_v'+v+'_干净离线包.zip')
     upgrade=project.parent/'升级包'/('自动判读系统_v'+v+'_程序更新包.zip')
     for file in (offline,upgrade):
         if not file.is_file():raise RuntimeError('Build release package first: '+str(file))
-    defaults=checked_zip(offline,'自动判读系统/',project/'TelemetryMonitor.exe',project/'web')
-    checked_zip(upgrade,'',project/'TelemetryMonitor.exe',project/'web')
+    executable=release_executable or project/'TelemetryMonitor.exe'
+    defaults=checked_zip(offline,'自动判读系统/',executable,project/'web')
+    checked_zip(upgrade,'',executable,project/'web')
     managed={}
     def put(rel,data):
         path=repo/rel;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data);managed[rel]=digest(data)
@@ -120,24 +121,29 @@ def prepare(project,repo,include_dsh=False):
         copy('说明/'+file.name,file)
     # Avoid historical manuals, user materials and the local migration document.
     template=(project/'tools/github_README.template.md').read_text('utf-8')
-    put('README.md',template.replace('{{VERSION}}',v).encode('utf-8'))
-    manual=project/'说明'/('数据判读系统_V'+v+'_使用说明书.docx')
-    if not manual.exists():raise RuntimeError('Current manual missing; update README/manual before publishing')
-    copy('docs/数据判读系统_V'+v+'_使用说明书.docx',manual)
-    shots=project.parent/'文档编制暂存'/('使用说明书_V'+v)
+    guides=[]
+    for file in (project/'说明').glob('数据判读系统_V*_使用说明书.docx'):
+        m=re.fullmatch(r'数据判读系统_V([0-9]+\.[0-9]+\.[0-9]+)_使用说明书\.docx',file.name)
+        if m and tuple(map(int,m[1].split('.')))<=tuple(map(int,v.split('.'))):guides.append((tuple(map(int,m[1].split('.'))),m[1],file))
+    if not guides:raise RuntimeError('A versioned user manual is required before publishing')
+    _,manual_version,manual=max(guides)
+    put('README.md',template.replace('{{VERSION}}',v).replace('{{MANUAL_VERSION}}',manual_version).encode('utf-8'))
+    copy('docs/'+manual.name,manual)
+    shots=project.parent/'文档编制暂存'/('使用说明书_V'+manual_version)
     for filename,relative in [('配图_02_实时参数.png','parameters.png'),('配图_07_序列运行.png','sequence.png')]:
         image=shots/filename
         if image.exists():copy('docs/screenshots/'+relative,image)
         elif not (repo/'docs/screenshots'/relative).exists():raise RuntimeError('Demo screenshot is missing')
     assets=[]
-    for original,name in [(offline,'DMS-v'+v+'-windows-offline.zip'),(upgrade,'DMS-v'+v+'-windows-upgrade.zip'),(manual,'DMS-v'+v+'-user-manual.docx')]:
+    for original,name in [(offline,'DMS-v'+v+'-windows-offline.zip'),(upgrade,'DMS-v'+v+'-windows-upgrade.zip'),(manual,'DMS-v'+manual_version+'-user-manual.docx')]:
         target=release/name;shutil.copyfile(original,target);assets.append({'name':name,'size':target.stat().st_size,'sha256':digest(target.read_bytes())})
     sums=''.join(a['sha256']+'  '+a['name']+'\n' for a in assets);(release/'SHA256SUMS.txt').write_text(sums,encoding='utf-8')
     assets.append({'name':'SHA256SUMS.txt','size':(release/'SHA256SUMS.txt').stat().st_size,'sha256':digest((release/'SHA256SUMS.txt').read_bytes())})
     notes=(project/'说明'/('V'+v+'更新说明.md')).read_text('utf-8-sig')
     notes+='\n\n## 下载与使用\n\n- windows-offline.zip：新部署，空配置，不含现场账号或数据。\n- windows-upgrade.zip：覆盖更新，保留config、data、logs。\n- user-manual.docx：完整使用说明和语法示例。\n- SHA256SUMS.txt：下载校验。\n\n本版不依赖数据库。安装Npcap后可使用相应抓包监视能力。升级前停止程序，覆盖后重启并Ctrl+F5刷新网页。\n'
+    if manual_version!=v:notes+='\n随附完整使用说明适用V'+manual_version+'，后续变化以本次版本说明为准。\n'
     (release/'release-notes.md').write_text(notes,encoding='utf-8')
-    put('release/current.json',(json.dumps({'version':v,'tag':'v'+v,'assets':assets},ensure_ascii=False,indent=2)+'\n').encode('utf-8'))
+    put('release/current.json',(json.dumps({'version':v,'tag':'v'+v,'manualVersion':manual_version,'assets':assets},ensure_ascii=False,indent=2)+'\n').encode('utf-8'))
     # Reject common credential formats without printing possible credential values.
     patterns=[r'github_pat_[A-Za-z0-9_]{20,}',r'gh[pousr]_[A-Za-z0-9]{25,}',r'sk-[A-Za-z0-9]{24,}',r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----']
     for rel in managed:
@@ -212,8 +218,8 @@ def publish(project,repo):
     write_json(release/'published.json',result);print(json.dumps(result,ensure_ascii=False,indent=2))
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['prepare','publish']);p.add_argument('--project-root',type=Path,default=PROJECT);p.add_argument('--repo-root',type=Path,default=DEFAULT_REPO);p.add_argument('--include-dsh',action='store_true',help='Include a separately verified DSH plugin source snapshot');args=p.parse_args()
-    if args.action=='prepare':prepare(args.project_root.resolve(),args.repo_root.resolve(),args.include_dsh)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['prepare','publish']);p.add_argument('--project-root',type=Path,default=PROJECT);p.add_argument('--repo-root',type=Path,default=DEFAULT_REPO);p.add_argument('--release-executable',type=Path,help='Use the tested build while an older server remains running');p.add_argument('--include-dsh',action='store_true',help='Include a separately verified DSH plugin source snapshot');args=p.parse_args()
+    if args.action=='prepare':prepare(args.project_root.resolve(),args.repo_root.resolve(),args.include_dsh,args.release_executable.resolve() if args.release_executable else None)
     else:publish(args.project_root.resolve(),args.repo_root.resolve())
 
 if __name__=='__main__':main()
