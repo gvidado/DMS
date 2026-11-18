@@ -39,9 +39,13 @@ namespace TelemetryMonitor
         private string ConfigurationEditorRoot {get{return Path.Combine(root,"data","pending-configuration");}}
         private static JavaScriptSerializer ConfigurationJson(){return new JavaScriptSerializer{MaxJsonLength=Int32.MaxValue,RecursionLimit=128};}
         private static string ConfigFile(string directory,string name){string path=Path.Combine(directory,"config",name);return File.Exists(path)?File.ReadAllText(path,Encoding.UTF8).TrimStart('\uFEFF'):null;}
-        private static bool SameConfiguration(object a,object b){return CanonicalJson.Encode(a)==CanonicalJson.Encode(b);}
         private static bool SameConfigText(string a,string b)
-        {if(String.Equals(a,b,StringComparison.Ordinal))return true;if(a==null||b==null)return false;return SameConfiguration(ConfigurationJson().DeserializeObject(a),ConfigurationJson().DeserializeObject(b));}
+        {
+            if (String.Equals(a,b,StringComparison.Ordinal)) return true;
+            if (a==null || b==null) return false;
+            var serializer = ConfigurationJson();
+            return CanonicalJson.EqualParsed(serializer.DeserializeObject(a),serializer.DeserializeObject(b));
+        }
         private static bool ConfigurationCommit(string path)
         {
             return path.EndsWith("-apply",StringComparison.Ordinal)||new[]{"/api/config","/api/decoders/apply","/api/decoders/packet","/api/decoders/packet/delete","/api/decoders/parameter","/api/continuous-rules/apply","/api/continuous-rules/save","/api/continuous-rules/delete","/api/continuous-rules/toggle","/api/continuous-rules/tc","/api/sequence/apply","/api/sequence/save-edits","/api/sequence/config","/api/send-monitor/config","/api/send-monitor/commands/apply","/api/send-monitor/commands/clear","/api/send-monitor/commands/edit","/api/command-send/config"}.Contains(path);
@@ -71,7 +75,7 @@ namespace TelemetryMonitor
         }
         private ConfigurationEditor CreateConfigurationEditor(string directory,Dictionary<string,string> baseline,Dictionary<string,string> initial)
         {
-            var editor=new ConfigurationEditor{Owner=this,Root=directory,Base=baseline,Initial=initial};editor.Monitor=new Monitor(directory);editor.Monitor.ConfigurationEditing=true;
+            var editor=new ConfigurationEditor{Owner=this,Root=directory,Base=baseline,Initial=initial};editor.Monitor=new Monitor(directory,true);
             editor.Transmitter=new CommandTransmitter(directory,editor.Monitor.Outgoing.Commands,(level,message)=>editor.Monitor.Note(level,message));editor.Transmitter.UseEditorRevision(liveTransmitter.SequenceRevision);return editor;
         }
         private ConfigurationEditor GetConfigurationEditor()
@@ -121,7 +125,17 @@ namespace TelemetryMonitor
             {
                 owner=server;context=ctx;commit=ctx.Request.HttpMethod=="POST"&&ConfigurationCommit(ctx.Request.Url.AbsolutePath);
                 System.Threading.Monitor.Enter(owner.configurationEditGate);
-                try{configurationContext=owner.GetConfigurationEditor();configurationRequest=this;if(commit){var cookie=ctx.Request.Cookies["tm_session"];var session=cookie==null?null:owner.auth.Find(cookie.Value);if(session!=null)owner.configurationActor=owner.auth.User(session).DisplayName;}}
+                try
+                {
+                    configurationContext=owner.GetConfigurationEditor();
+                    configurationRequest=this;
+                    if(commit)
+                    {
+                        var cookie=ctx.Request.Cookies["tm_session"];
+                        var session=cookie==null?null:owner.auth.Find(cookie.Value);
+                        if(session!=null)owner.configurationActor=owner.auth.User(session).DisplayName;
+                    }
+                }
                 catch{System.Threading.Monitor.Exit(owner.configurationEditGate);throw;}
             }
             internal object BeforeResponse(HttpListenerResponse response,object value,int status)

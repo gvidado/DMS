@@ -43,9 +43,12 @@ namespace TelemetryMonitor
         public NetworkReplay NetworkSender { get; private set; }
         public SendMonitor Outgoing { get; private set; }
 
-        public Monitor(string directory)
+        public Monitor(string directory) : this(directory, false) {}
+
+        internal Monitor(string directory, bool configurationEditing)
         {
             root = directory;
+            ConfigurationEditing = configurationEditing;
             CommandEditFiles.Recover(Path.Combine(root,"config"));
             string settingsPath = Path.Combine(root, "config", "server.json");
             Config = JsonFile.Load<Settings>(settingsPath);
@@ -55,9 +58,12 @@ namespace TelemetryMonitor
             Catalog = JsonFile.Load<List<Parameter>>(Path.Combine(root, "config", "parameters.json"));
             if (Catalog.Select(p => p.Id).Distinct().Count() != Catalog.Count) throw new ArgumentException("参数ID重复");
             LoadDecoder();
-            alarms = new AlarmJournal(Path.Combine(root, "data", "alarm-history.jsonl"));
-            OpenJudgmentAbnormalHistory();
-            OpenUnifiedAbnormalReleases();
+            if (!ConfigurationEditing)
+            {
+                alarms = new AlarmJournal(Path.Combine(root, "data", "alarm-history.jsonl"));
+                OpenJudgmentAbnormalHistory();
+                OpenUnifiedAbnormalReleases();
+            }
             NetworkSender = new NetworkReplay((level, message) => Note(level, message));
             Outgoing = new SendMonitor(root, OutgoingNote);
             LoadTCBindings();
@@ -65,6 +71,7 @@ namespace TelemetryMonitor
             InitializeDefaultRules();
             InitializeSequences();
             MigratePssCommandNumbers();
+            if (ConfigurationEditing) return;
             InitializeJudgmentArchives();
             health = new Timer(CheckHealth, null, 1000, 250);
             InitializeJudgmentTimer();
@@ -74,6 +81,7 @@ namespace TelemetryMonitor
 
         public void Note(string level, string message, bool recordAlarm = true)
         {
+            if (ConfigurationEditing) return;
             lock (Gate)
             {
                 Notice n = new Notice { Id = ++noticeId, Time = BeijingTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"), Level = level, Message = message };
@@ -508,6 +516,6 @@ namespace TelemetryMonitor
             }
         }
 
-        public void Dispose() { Stop(); if(judgmentTimer!=null)judgmentTimer.Dispose(); if (Outgoing != null) Outgoing.Dispose(); if (NetworkSender != null) NetworkSender.Dispose(); health.Dispose(); DisposeReplay(); ClearLiveAbnormal(); if (judgmentAbnormals != null) judgmentAbnormals.Dispose(); if (unifiedReleases != null) unifiedReleases.Dispose(); if (alarms != null) alarms.Dispose(); }
+        public void Dispose() { if(!ConfigurationEditing)Stop(); if(judgmentTimer!=null)judgmentTimer.Dispose(); if (Outgoing != null) Outgoing.Dispose(); if (NetworkSender != null) NetworkSender.Dispose(); if(health!=null)health.Dispose(); DisposeReplay(); ClearLiveAbnormal(); if (judgmentAbnormals != null) judgmentAbnormals.Dispose(); if (unifiedReleases != null) unifiedReleases.Dispose(); if (alarms != null) alarms.Dispose(); }
     }
 }

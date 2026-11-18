@@ -47,7 +47,7 @@ namespace TelemetryMonitor
             string path=ctx.Request.Url.AbsolutePath,method=ctx.Request.HttpMethod;
             if(path=="/api/decoders/parameter" && method=="GET")
             {
-                lock(monitor.Gate){var candidate=monitor.DecoderSnapshot();var parameter=candidate.Catalog.Parameters.FirstOrDefault(p=>p.Id==Query(ctx.Request,"id"));if(parameter==null)throw new ArgumentException("参数不存在，请刷新");Json(ctx.Response,new{revision=candidate.Revision,parameter,packets=candidate.Packets.Where(p=>p.Groups.Contains(parameter.Group)).Select(p=>p.Name).ToArray()},200);}return true;
+                Json(ctx.Response,monitor.ReadParameterDefinition(Query(ctx.Request,"id")),200);return true;
             }
             if(path=="/api/decoders/parameter/note" && method=="POST")
             {Json(ctx.Response,WorkbookReader.ParseEditedNote(Text(Body(ctx.Request,1024*1024),"note")),200);return true;}

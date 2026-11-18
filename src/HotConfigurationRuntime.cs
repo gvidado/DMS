@@ -44,14 +44,14 @@ namespace TelemetryMonitor
                 var changedPackets=new HashSet<string>(previousPackets.Where(item=>
                 {
                     PacketDefinition next;
-                    return !nextPackets.TryGetValue(item.Key,out next)||CanonicalJson.Encode(item.Value)!=CanonicalJson.Encode(next);
+                    return !nextPackets.TryGetValue(item.Key,out next)||!CanonicalJson.Equivalent(item.Value,next);
                 }).Select(item=>item.Key));
                 var nextFields=incoming.Catalog.ToDictionary(p=>p.Id);
                 foreach(var field in Catalog)
                 {
                     Parameter next;
                     if(!nextFields.TryGetValue(field.Id,out next)||changedPackets.Contains(field.PacketId??"")||
-                        CanonicalJson.Encode(field)!=CanonicalJson.Encode(next))
+                        !CanonicalJson.Equivalent(field,next))
                         change.ChangedParameters.Add(field.Id,field);
                 }
             }

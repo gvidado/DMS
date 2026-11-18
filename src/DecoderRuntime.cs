@@ -28,9 +28,9 @@ namespace TelemetryMonitor
         {
             lock (Gate)
             {
-                if (decoder != null) return JsonFile.Decode<DecoderConfiguration>(JsonFile.Encode(decoder));
+                if (decoder != null) return decoder.Copy();
                 var config = new DecoderConfiguration { Revision = DecoderRevision, Catalog = new TelemetryCatalog { SourceFile = "旧版parameters.json", GeneratedAt = BeijingTime.Now.ToString("yyyy-MM-dd HH:mm:ss") } };
-                config.Catalog.Parameters = JsonFile.Decode<List<Parameter>>(JsonFile.Encode(Catalog));
+                config.Catalog.Parameters = Catalog.Select(p => p.CopyForMapping()).ToList();
                 foreach (Parameter p in config.Catalog.Parameters)
                 {
                     p.SourceId = p.Id;
@@ -44,6 +44,21 @@ namespace TelemetryMonitor
                     BitOrder = Config.BitOrder, MappingConfirmed = Config.MappingConfirmed,
                     Groups = Catalog.Where(p => Protocol.InProfile(p, Config.Profile)).Select(p => p.Group).Distinct().ToList() });
                 return config;
+            }
+        }
+        internal object ReadParameterDefinition(string id)
+        {
+            lock (Gate)
+            {
+                var configuration = decoder ?? DecoderSnapshot();
+                var parameter = configuration.Catalog.Parameters.FirstOrDefault(p => p.Id == id);
+                if (parameter == null) throw new ArgumentException("参数不存在，请刷新");
+                return new
+                {
+                    revision = configuration.Revision,
+                    parameter = parameter.CopyForMapping(),
+                    packets = configuration.Packets.Where(p => p.Groups.Contains(parameter.Group)).Select(p => p.Name).ToArray()
+                };
             }
         }
         private void RebuildCatalog()
@@ -77,7 +92,7 @@ namespace TelemetryMonitor
                 if (Listening || Demo) throw new InvalidOperationException("请先停止接收，再应用解码配置");
                 if (revision != DecoderRevision) throw new InvalidOperationException("其他用户已修改配置，请刷新后重新预览或保存");
                 config.Validate(); config.Revision = Guid.NewGuid().ToString("N");
-                var nextDecoder=JsonFile.Decode<DecoderConfiguration>(JsonFile.Encode(config));
+                var nextDecoder=config.Copy();
                 var nextCatalog=BuildCatalog(nextDecoder);
                 var defaults=PlanDefaultRules(nextCatalog);
                 // Save both files before publishing either configuration to running readers.

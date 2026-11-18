@@ -14,6 +14,7 @@ namespace TelemetryMonitor
         public int Row;
         public string Code;
         public string Message;
+        internal ImportIssue Copy() { return (ImportIssue)MemberwiseClone(); }
     }
     public sealed class SheetSummary
     {
@@ -24,6 +25,7 @@ namespace TelemetryMonitor
         public int Supported;
         public int Skipped;
         public int ReservedSkipped;
+        internal SheetSummary Copy() { return (SheetSummary)MemberwiseClone(); }
     }
     public sealed class TelemetryCatalog
     {
@@ -36,6 +38,16 @@ namespace TelemetryMonitor
         public List<ImportIssue> Issues = new List<ImportIssue>();
         public List<ImportIssue> ReferenceIssues { get { return TelemetryReferences.Issues(Parameters); } }
         public List<string> Assumptions = new List<string>();
+        internal TelemetryCatalog Copy()
+        {
+            var copy = (TelemetryCatalog)MemberwiseClone();
+            copy.SourceFiles = SourceFiles == null ? null : new List<string>(SourceFiles);
+            copy.Parameters = Parameters == null ? null : Parameters.Select(p => p == null ? null : p.CopyForMapping()).ToList();
+            copy.Sheets = Sheets == null ? null : Sheets.Select(s => s == null ? null : s.Copy()).ToList();
+            copy.Issues = Issues == null ? null : Issues.Select(i => i == null ? null : i.Copy()).ToList();
+            copy.Assumptions = Assumptions == null ? null : new List<string>(Assumptions);
+            return copy;
+        }
     }
     public sealed class DecoderConfiguration
     {
@@ -43,6 +55,13 @@ namespace TelemetryMonitor
         public string Revision = "";
         public TelemetryCatalog Catalog = new TelemetryCatalog();
         public List<PacketDefinition> Packets = new List<PacketDefinition>();
+        internal DecoderConfiguration Copy()
+        {
+            var copy = (DecoderConfiguration)MemberwiseClone();
+            copy.Catalog = Catalog == null ? null : Catalog.Copy();
+            copy.Packets = Packets == null ? null : Packets.Select(p => p == null ? null : p.Copy()).ToList();
+            return copy;
+        }
         public void Validate()
         {
             if (SchemaVersion != 2 || Catalog == null || Catalog.Parameters == null || Packets == null) throw new ArgumentException("不支持的解码配置格式，要求SchemaVersion=2");
@@ -85,8 +104,12 @@ namespace TelemetryMonitor
                     if (((a.Enabled && b.Enabled)||(a.MonitorRaw && b.MonitorRaw)) && PacketCodec.SameRoutingFields(a, b) && sourceOverlap)
                         throw new ArgumentException((a.Enabled&&b.Enabled?"启用的解码包":"监测原包")+"定义路由冲突：" + a.Name + " / " + b.Name + "，外层来源、包标识、源地址、业务类型、业务子类型相同且来源IP重叠");
                 }
-            if (Packets.Sum(p => Catalog.Parameters.Count(x => p.Groups.Contains(x.Group))) > 100000) throw new ArgumentException("包映射展开后参数数量过大");
-            var duplicate=Packets.Where(p=>p.Enabled&&p.OuterSourceId>=0).SelectMany(packet=>Catalog.Parameters.Where(p=>packet.Groups.Contains(p.Group)).Select(p=>TelemetryReferences.Name(p.Code,packet.TelemetryNamespace))).GroupBy(reference=>reference).FirstOrDefault(g=>g.Count()>1);
+            var parametersByGroup = Catalog.Parameters.ToLookup(p => p.Group);
+            if (Packets.Sum(p => p.Groups.Sum(g => parametersByGroup[g].Count())) > 100000) throw new ArgumentException("包映射展开后参数数量过大");
+            var duplicate=Packets.Where(p=>p.Enabled&&p.OuterSourceId>=0)
+                .SelectMany(packet=>packet.Groups.SelectMany(group=>parametersByGroup[group])
+                    .Select(p=>TelemetryReferences.Name(p.Code,packet.TelemetryNamespace)))
+                .GroupBy(reference=>reference).FirstOrDefault(g=>g.Count()>1);
             if(duplicate!=null)throw new ArgumentException("多个启用的SPP同时更新同一来源变量："+duplicate.Key+"；请调整参数表关联或停用冲突包");
         }
         private static bool Finite(double d) { return !Double.IsNaN(d) && !Double.IsInfinity(d); }
@@ -127,6 +150,12 @@ namespace TelemetryMonitor
         public int ChecksumStart = 0;
         public bool MappingConfirmed = false;
         public List<string> Groups = new List<string>();
+        internal PacketDefinition Copy()
+        {
+            var copy = (PacketDefinition)MemberwiseClone();
+            copy.Groups = Groups == null ? null : new List<string>(Groups);
+            return copy;
+        }
         public void Validate(HashSet<string> groups)
         {
             ChecksumMode = SppChecksum.Mode; ChecksumStart = 0;

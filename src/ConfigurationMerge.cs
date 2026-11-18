@@ -7,7 +7,7 @@ namespace TelemetryMonitor
 {
     internal static class ConfigurationMerge
     {
-        private static bool Same(object a,object b){return CanonicalJson.Encode(a)==CanonicalJson.Encode(b);}
+        private static bool Same(object a,object b){return CanonicalJson.EqualParsed(a,b);}
         private static string KeyName(string path)
         {
             string field=path.Substring(path.LastIndexOf('.')+1);

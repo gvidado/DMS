@@ -71,8 +71,10 @@ namespace TelemetryMonitor
             {
                 if (File.Exists(path))
                 {
-                    Stamp();string json=File.ReadAllText(path,Encoding.UTF8);var top=Serializer().Deserialize<Dictionary<string,object>>(json);
-                    configuration = Serializer().Deserialize<ObservedCommandConfiguration>(json);
+                    Stamp();
+                    var serializer = Serializer();
+                    var top = serializer.Deserialize<Dictionary<string,object>>(File.ReadAllText(path,Encoding.UTF8));
+                    configuration = serializer.ConvertToType<ObservedCommandConfiguration>(top);
                     if(Validate(top.ContainsKey("InterfaceWidthRule")?configuration.InterfaceWidthRule:0))SaveFile(true);
                 }
                 else SaveFile(false);
@@ -111,7 +113,9 @@ namespace TelemetryMonitor
             bool changed=configuration.IdentityRule!="udp-payload"||previousWidthRule!=4;configuration.InterfaceWidthRule=4;
             configuration.SourceIP = IPv4(configuration.SourceIP);
             if (IPAddress.Parse(configuration.SourceIP).GetAddressBytes()[0] >= 224) throw new ArgumentException("指令配置来源IP应为单播地址");
-            var numbers = new HashSet<long>(); long maximum = 0;
+            var numbers = new HashSet<long>();
+            var payloads = new Dictionary<long,byte[]>();
+            long maximum = 0;
             foreach (ObservedCommand entry in configuration.Commands)
             {
                 if (entry == null || entry.Number < 1 || entry.Number == Int64.MaxValue || !numbers.Add(entry.Number)) throw new ArgumentException("指令编号无效或重复");
@@ -143,13 +147,14 @@ namespace TelemetryMonitor
                     else if(entry.InterfaceBytes==0)entry.InterfaceBytes=previous;
                 }
                 if(entry.STC && (!CommandEnvelope.Valid(payload,entry.InterfaceBytes) || entry.Categories.Count==0))throw new ArgumentException("STC指令必须有有效的EB90封装及分类编号");
+                payloads.Add(entry.Number,payload);
                 maximum = Math.Max(maximum, entry.Number);
             }
             var merged=new List<ObservedCommand>();var complete=new Dictionary<string,ObservedCommand>();
             foreach(var entry in configuration.Commands.OrderBy(e=>e.Number))
             {
-                byte[] payload=entry.Length==0?new byte[0]:PacketCodec.Hex(entry.PayloadHex);ObservedCommand original;
-                if(!complete.TryGetValue(entry.PayloadHex,out original)){AddIndex(entry,payload);merged.Add(entry);complete.Add(entry.PayloadHex,entry);continue;}
+                ObservedCommand original;
+                if(!complete.TryGetValue(entry.PayloadHex,out original)){AddIndex(entry,payloads[entry.Number]);merged.Add(entry);complete.Add(entry.PayloadHex,entry);continue;}
                 original.DestinationIPs=original.DestinationIPs.Concat(entry.DestinationIPs).Distinct().ToList();
                 original.Aliases.Add(new ObservedCommandAlias{Number=entry.Number,Name=entry.Name});original.Aliases.AddRange(entry.Aliases);changed=true;
                 original.Categories.AddRange(entry.Categories);

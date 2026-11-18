@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 
 namespace TelemetryMonitor
 {
@@ -111,9 +110,30 @@ namespace TelemetryMonitor
         public static byte[] Hex(string text)
         {
             if (text == null || text.Length > 400000) throw new ArgumentException("十六进制报文过大");
-            string cleaned = Regex.Replace(Regex.Replace(text, "0[xX]", ""), "[\\s,，]+", "");
-            if (cleaned.Length == 0 || cleaned.Length % 2 != 0 || cleaned.Length / 2 > 65507 || !Regex.IsMatch(cleaned, "^[a-fA-F0-9]+$")) throw new ArgumentException("请输入完整十六进制字节，可用空格换行或逗号分隔，最大65507字节");
-            byte[] bytes = new byte[cleaned.Length / 2]; for (int i = 0; i < bytes.Length; i++) bytes[i] = Convert.ToByte(cleaned.Substring(i * 2, 2), 16); return bytes;
+            const string invalid = "请输入完整十六进制字节，可用空格换行或逗号分隔，最大65507字节";
+            var bytes = new byte[Math.Min(65507, (text.Length + 1) / 2)];
+            int count = 0, high = -1;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char ch = text[i];
+                if (ch == '0' && i + 1 < text.Length && (text[i + 1] == 'x' || text[i + 1] == 'X'))
+                { i++; continue; }
+                if (ch == ',' || ch == '，' || Char.IsWhiteSpace(ch)) continue;
+                int nibble = ch >= '0' && ch <= '9' ? ch - '0'
+                    : ch >= 'A' && ch <= 'F' ? ch - 'A' + 10
+                    : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : -1;
+                if (nibble < 0) throw new ArgumentException(invalid);
+                if (high < 0) high = nibble;
+                else
+                {
+                    if (count == bytes.Length) throw new ArgumentException(invalid);
+                    bytes[count++] = (byte)((high << 4) | nibble);
+                    high = -1;
+                }
+            }
+            if (count == 0 || high >= 0) throw new ArgumentException(invalid);
+            if (count != bytes.Length) Array.Resize(ref bytes, count);
+            return bytes;
         }
         public static object TryDecode(DecoderConfiguration config, PacketDefinition d, byte[] bytes)
         {

@@ -22,7 +22,11 @@ namespace TelemetryMonitor
                 sequenceConfiguration=value;
             }
             catch(Exception ex){sequenceStorageError="序列配置读取失败，原文件保留："+ex.Message;}
-            InitializeSequenceHistory();Outgoing.Captured+=QueueSequenceCaptured;
+            if (!ConfigurationEditing)
+            {
+                InitializeSequenceHistory();
+                Outgoing.Captured+=QueueSequenceCaptured;
+            }
         }
         private static T SequenceClone<T>(T value){return JsonFile.Decode<T>(JsonFile.Encode(value));}
         private static void CheckSequenceConfig(SequenceConfiguration value)

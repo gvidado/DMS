@@ -50,8 +50,11 @@ window.SequenceUI=(()=>{
   function drawStartPreview(){
     const data=startPreviewData,rows=data?.definition.Rows||[],pages=Math.max(1,Math.ceil(rows.length/50));startPreviewPage=Math.min(pages,Math.max(1,startPreviewPage));
     const startRow=Number($('sequence-start-row').value),first=rows.findIndex(r=>r.Row===startRow),body=$('sequence-start-preview-rows');body.replaceChildren();
-    for(const row of rows.slice((startPreviewPage-1)*50,startPreviewPage*50)){
-      const index=rows.indexOf(row),skip=first>=0&&index<first,command=data.commands.find(c=>c.row===row.Row),tr=element('tr',skip?'sequence-row-unstarted':'');
+    const commands=new Map();
+    for(const command of data?.commands||[])if(!commands.has(command.row))commands.set(command.row,command);
+    const end=Math.min(rows.length,startPreviewPage*50);
+    for(let index=(startPreviewPage-1)*50;index<end;index++){
+      const row=rows[index],skip=index<first,command=commands.get(row.Row),tr=element('tr',skip?'sequence-row-unstarted':'');
       tr.dataset.sequencePreviewRow=row.Row;
       for(const text of [row.Row+(skip?'（跳过）':''),row.Keyword,row.Description,command?[row.Command,command.name,command.action+' → '+command.destinations.join('；')].join('\n'):row.Command,row.Condition,row.Mark,row.Expected||((data.definition.Mode==='execute'&&!['TEXT','PLUSE','PAUSE'].includes(row.Keyword.toUpperCase()))?'1（默认）':'立即'),['TEXT','PLUSE','PAUSE'].includes((row.Keyword||'').trim().toUpperCase())?'—':row.Timeout||String(config.defaultTimeout)+'（默认）']){const cell=td(text);cell.title=String(text||'');tr.append(cell);}body.append(tr);
     }

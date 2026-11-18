@@ -56,7 +56,7 @@ namespace TelemetryMonitor
                         string value;workingFiles.Add(name);
                         WriteBatchFile(directory,name,pendingValues.TryGetValue(name,out value)?value:before[name]);
                     }
-                    incoming=new Monitor(directory);
+                    incoming=new Monitor(directory,true);
                     owned=true;
                     foreach(string name in ConfigurationFiles)pendingValues[name]=ConfigFile(directory,name);
                 }

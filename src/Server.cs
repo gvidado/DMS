@@ -55,10 +55,15 @@ namespace TelemetryMonitor
             if (request.ContentLength64 > limit) throw new ArgumentException("请求过大");
             using (var reader = new StreamReader(request.InputStream, Encoding.UTF8))
             {
-                char[] buffer = new char[limit + 1]; int count = 0, n;
-                while (count < buffer.Length && (n = reader.Read(buffer, count, buffer.Length - count)) > 0) count += n;
-                if (count > limit) throw new ArgumentException("请求过大");
-                return JsonFile.Decode<Dictionary<string, object>>(new string(buffer, 0, count)) ?? new Dictionary<string, object>();
+                var text = new StringBuilder();
+                var buffer = new char[Math.Min(4096, limit + 1)];
+                int count;
+                while ((count = reader.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (text.Length + count > limit) throw new ArgumentException("请求过大");
+                    text.Append(buffer, 0, count);
+                }
+                return JsonFile.Decode<Dictionary<string, object>>(text.ToString()) ?? new Dictionary<string, object>();
             }
         }
         private static string Text(Dictionary<string, object> body, string key)
@@ -80,10 +85,8 @@ namespace TelemetryMonitor
                 if (req.HttpMethod == "GET" && new[] { "/", "/index.html", "/app.js", "/layout-clipboard.js", "/layout-arrange.js", "/decoder.js", "/configuration.js", "/telemetry-import.js", "/telemetry-import.css", "/capture.js", "/runtime.js", "/raw-spp.js", "/alarms.js", "/network-replay.js", "/send-monitor.js", "/command-xml.js", "/command-send.js", "/command-panels.js", "/command-panels.css", "/sequence.js", "/sequence.css", "/continuous.js", "/namespace-migration.js", "/unified-abnormals.js", "/judgment-archives.js", "/workspace.js", "/display-size.js", "/parameter-display.js", "/parameter-display.css", "/realtime.js", "/realtime-worker.js", "/style.css", "/logo.svg" }.Contains(path))
                 {
                     string name = path == "/" ? "index.html" : path.Substring(1);
-                    string file = Path.Combine(root, "web", name);
-                    byte[] data = File.ReadAllBytes(file);
-                    res.ContentType = name.EndsWith(".js") ? "application/javascript; charset=utf-8" : name.EndsWith(".css") ? "text/css; charset=utf-8" : name.EndsWith(".svg") ? "image/svg+xml" : "text/html; charset=utf-8";
-                    res.ContentLength64 = data.Length; res.OutputStream.Write(data, 0, data.Length); return;
+                    ServeWebAsset(ctx, name);
+                    return;
                 }
                 string token = req.Cookies["tm_session"] == null ? null : req.Cookies["tm_session"].Value;
                 Session session = auth.Find(token);
@@ -119,7 +122,7 @@ namespace TelemetryMonitor
                 if (path == "/api/auth/password" && req.HttpMethod == "POST")
                 { var body = Body(req); auth.ChangePassword(session, Text(body, "oldPassword"), Text(body, "password")); Json(res, new { ok = true }, 200); return; }
                 if (path == "/api/catalog" && req.HttpMethod == "GET")
-                { Json(res, monitor.Catalog, 200); return; }
+                { ServeCatalog(ctx); return; }
                 if (path == "/api/selection" && req.HttpMethod == "GET")
                 { Json(res, auth.ResolveSelection(session, monitor.Catalog), 200); return; }
                 if (HandleParameterDisplays(ctx, session)) return;

@@ -27,7 +27,6 @@ namespace TelemetryMonitor
 
     public static class DecoderImport
     {
-        private static T Copy<T>(T value) { return JsonFile.Decode<T>(JsonFile.Encode(value)); }
         private static string Key(Parameter parameter) { return parameter.Group + "\0" + parameter.Code; }
         private static IEnumerable<string> Names(TelemetryCatalog catalog)
         { return catalog.Sheets.Select(s => s.Name).Concat(catalog.Parameters.Select(p => p.Group)).Distinct(); }
@@ -44,7 +43,7 @@ namespace TelemetryMonitor
 
         public static DecoderConfiguration Replace(DecoderConfiguration current, TelemetryCatalog incoming)
         {
-            DecoderConfiguration result = Copy(current); result.Catalog = Copy(incoming);
+            DecoderConfiguration result = current.Copy(); result.Catalog = incoming.Copy();
             var groups = new HashSet<string>(result.Catalog.Parameters.Select(p => p.Group));
             foreach (PacketDefinition packet in result.Packets)
             {
@@ -62,7 +61,7 @@ namespace TelemetryMonitor
         public static DecoderConfiguration ReplaceMatching(DecoderConfiguration current, TelemetryCatalog incoming, out CatalogMatchingReplacement info)
         {
             info = new CatalogMatchingReplacement();
-            DecoderConfiguration result = Copy(current); TelemetryCatalog target = result.Catalog;
+            DecoderConfiguration result = current.Copy(); TelemetryCatalog target = result.Catalog;
             var existingNames = new HashSet<string>(Names(target), StringComparer.Ordinal);
             var importedNames = new HashSet<string>(Names(incoming), StringComparer.Ordinal);
             info.ReplacedSheets = Names(incoming).Where(existingNames.Contains).ToList();
@@ -86,7 +85,7 @@ namespace TelemetryMonitor
             var replacements = new List<Parameter>();
             foreach (Parameter source in imported)
             {
-                Parameter parameter = Copy(source), old;
+                Parameter parameter = source.CopyForMapping(), old;
                 // Keep stable bindings for parameters retained within the same table.
                 if (byKey.TryGetValue(Key(source), out old)) { parameter.Id = old.Id; parameter.SourceId = old.SourceId; }
                 replacements.Add(parameter);
@@ -107,12 +106,12 @@ namespace TelemetryMonitor
             {
                 SheetSummary source = incoming.Sheets.FirstOrDefault(s => s.Name == name);
                 int index = target.Sheets.FindIndex(s => s.Name == name);
-                SheetSummary sheet = source == null ? new SheetSummary { Name = name } : Copy(source);
+                SheetSummary sheet = source == null ? new SheetSummary { Name = name } : source.Copy();
                 sheet.Parameters = parameters.Count(p => p.Group == name); sheet.Supported = parameters.Count(p => p.Group == name && p.Supported);
                 if (index >= 0) target.Sheets[index] = sheet; else target.Sheets.Add(sheet);
             }
             target.Issues.RemoveAll(i => matched.Contains(i.Sheet));
-            target.Issues.AddRange(incoming.Issues.Where(i => matched.Contains(i.Sheet)).Select(Copy));
+            target.Issues.AddRange(incoming.Issues.Where(i => matched.Contains(i.Sheet)).Select(i => i.Copy()));
             target.Assumptions = target.Assumptions.Concat(incoming.Assumptions).Distinct().ToList();
             target.SourceFiles = Sources(target).Concat(Sources(incoming)).Distinct().ToList();
             target.SourceFile = String.Join("；", target.SourceFiles); target.GeneratedAt = incoming.GeneratedAt;
@@ -130,7 +129,7 @@ namespace TelemetryMonitor
         public static DecoderConfiguration Add(DecoderConfiguration current, TelemetryCatalog incoming, out CatalogAddition info)
         {
             info = new CatalogAddition();
-            DecoderConfiguration result = Copy(current); TelemetryCatalog target = result.Catalog;
+            DecoderConfiguration result = current.Copy(); TelemetryCatalog target = result.Catalog;
             var names = new HashSet<string>(Names(target));
             info.AddedSheets = Names(incoming).Where(n => !names.Contains(n)).ToList();
             if (target.CrossByteOrder != incoming.CrossByteOrder)
@@ -161,7 +160,7 @@ namespace TelemetryMonitor
                     if (info.Conflicts.Count < 100) info.Conflicts.Add(conflict);
                     continue;
                 }
-                Parameter added = Copy(p); target.Parameters.Add(added); byKey[Key(added)] = added; byId[added.Id] = added;
+                Parameter added = p.CopyForMapping(); target.Parameters.Add(added); byKey[Key(added)] = added; byId[added.Id] = added;
                 info.AddedParameters++;
             }
             info.TotalParameters = target.Parameters.Count;
@@ -173,7 +172,7 @@ namespace TelemetryMonitor
             foreach (SheetSummary source in incoming.Sheets)
             {
                 SheetSummary sheet = target.Sheets.FirstOrDefault(s => s.Name == source.Name);
-                if (sheet == null) target.Sheets.Add(Copy(source));
+                if (sheet == null) target.Sheets.Add(source.Copy());
                 else
                 {
                     // Overlapping tables may repeat reserved rows; do not count the same import twice.
@@ -190,7 +189,7 @@ namespace TelemetryMonitor
             }
             var knownIssues = new HashSet<string>(target.Issues.Select(i => CanonicalJson.Encode(i)));
             foreach (ImportIssue issue in incoming.Issues)
-                if (knownIssues.Add(CanonicalJson.Encode(issue))) target.Issues.Add(Copy(issue));
+                if (knownIssues.Add(CanonicalJson.Encode(issue))) target.Issues.Add(issue.Copy());
             target.Assumptions = target.Assumptions.Concat(incoming.Assumptions).Distinct().ToList();
             target.SourceFiles = Sources(target).Concat(Sources(incoming)).Distinct().ToList();
             target.SourceFile = String.Join("；", target.SourceFiles);
