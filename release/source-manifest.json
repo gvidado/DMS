@@ -193,7 +193,7 @@
     "tools/default_rules_test.py": "6ba029a1e05f14ba02a985e4e8af31671c2c846b506bc85b924197429116ab33",
     "tools/display_size_browser.mjs": "c986422f36a7b6a37ba3264988bf4c11f34466300fee863ea3188ed7b9fb8311",
     "tools/excel_cancel_browser.mjs": "62f422a3867f261418a5480019ed56f2199c2eeed96242782d303e72fddfad75",
-    "tools/feature_tabs_test.mjs": "d3ee15d60aef49fd42224ecbc609898ea545b7db138eb7aeb6877c29821260da",
+    "tools/feature_tabs_test.mjs": "fb72cc8ccbc6f62ffade0d5587b3498b9ef3adfb91ce19591c8e724e2d46370f",
     "tools/github_README.template.md": "4a4fa1018e6f5f151fb4212aeda94d404e022d5e4ea7f4dccd6007a393f86d9e",
     "tools/github_sync.py": "24d009ebd56b9c45281e1bef50e330d18d6fc93ff8b2521a7dabe5b4397f8733",
     "tools/import_parameters.py": "def2384f8c9a667daaaf65dbdbc5e98ce31437fcfdebd76df603f6902c7cfccc",
