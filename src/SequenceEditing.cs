@@ -12,18 +12,19 @@ namespace TelemetryMonitor
             if(path=="/api/sequence/edit-preview" && method=="POST")
             {
                 var body=Body(ctx.Request);
+                object result;
                 lock(commandGate)
                 {
-                    var config=JsonFile.Decode<Dictionary<string,object>>(JsonFile.Encode(monitor.SequenceConfigurationInfo()));
-                    string revision=Convert.ToString(config["revision"]);
+                    string revision=monitor.SequenceConfigurationRevision;
                     if(Text(body,"revision")!=revision)throw new InvalidOperationException("序列配置已变化，请重新载入再编辑");
                     var definition=monitor.SequenceDefinition(Text(body,"id"));
                     PruneSequencePreviews();
                     if(sequencePreviews.Count>=16)throw new InvalidOperationException("当前编辑预览较多，请稍后再试");
-                    var preview=new SequenceImportPreview{Token=Auth.RandomToken(),OwnerSession=session.Token,Revision=revision,EditId=definition.Id,Created=DateTime.UtcNow,Timeout=Convert.ToDouble(config["defaultTimeout"]),Definitions=new List<SequenceDefinition>{definition}};
+                    var preview=new SequenceImportPreview{Token=Auth.RandomToken(),OwnerSession=session.Token,Revision=revision,EditId=definition.Id,Created=DateTime.UtcNow,Timeout=monitor.SequenceDefaultTimeout,Definitions=new List<SequenceDefinition>{definition}};
                     sequencePreviews[preview.Token]=preview;
-                    Json(ctx.Response,new{token=preview.Token,editId=preview.EditId,definitions=new[]{monitor.SequenceValidate(definition,preview.Timeout)},conversion=preview.Conversion},200);
+                    result=new{token=preview.Token,editId=preview.EditId,definitions=new[]{monitor.SequenceValidate(definition,preview.Timeout)},conversion=preview.Conversion};
                 }
+                Json(ctx.Response,result,200);
                 return true;
             }
             if(path=="/api/sequence/save-edits" && method=="POST")

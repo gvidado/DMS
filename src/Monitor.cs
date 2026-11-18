@@ -33,8 +33,8 @@ namespace TelemetryMonitor
         private object packetInfo;
         private long generation;
         private long noticeId;
-        private string lastReject = "";
-        private DateTime lastRejectAt;
+        private readonly HashSet<string> recentRejectionMessages = new HashSet<string>(StringComparer.Ordinal);
+        private double rejectionWindowEnd;
         public bool Listening { get; private set; }
         public bool Demo { get; private set; }
         public long Received, Accepted, Invalid, Duplicates, Lost, OutOfOrder, Filtered, Bytes;
@@ -104,7 +104,7 @@ namespace TelemetryMonitor
             generation++;
             Received = Accepted = Invalid = Duplicates = Lost = OutOfOrder = Filtered = Bytes = 0;
             processingDelayMs=maxProcessingDelayMs=0;
-            started = DateTime.UtcNow; Error = ""; lastReject = "";
+            started = DateTime.UtcNow; Error = ""; recentRejectionMessages.Clear(); rejectionWindowEnd=0;
         }
 
         public void Start()
@@ -209,20 +209,17 @@ namespace TelemetryMonitor
         {
             try
             {
-                bool packetInformation=true;try{client.Client.SetSocketOption(SocketOptionLevel.IP,SocketOptionName.PacketInformation,true);}catch(SocketException){packetInformation=false;}
-                byte[] receiveBuffer=new byte[65535];
+                IPEndPoint peer = new IPEndPoint(IPAddress.Any, 0);
                 while (true)
                 {
                     try
                     {
-                        IPEndPoint peer = new IPEndPoint(IPAddress.Any, 0);
-                        byte[] data;string destination="";EventStamp stamp;
-                        if(packetInformation){EndPoint endpoint=peer;SocketFlags flags=SocketFlags.None;IPPacketInformation info;int length=client.Client.ReceiveMessageFrom(receiveBuffer,0,receiveBuffer.Length,ref flags,ref endpoint,out info);stamp=EventStamp.Now();peer=(IPEndPoint)endpoint;destination=info.Address.ToString();data=new byte[length];Buffer.BlockCopy(receiveBuffer,0,data,0,length);}
-                        else{data=client.Receive(ref peer);stamp=EventStamp.Now();}
+                        byte[] data = client.Receive(ref peer);
+                        EventStamp stamp = EventStamp.Now();
                         lock (Gate)
                         {
                             if (!Listening || socket != client) return;
-                            ProcessReceived(data,peer.Address.ToString(),false,peer.Port,0,stamp,destination);
+                            ProcessReceived(data,peer.Address.ToString(),false,peer.Port,0,stamp);
                         }
                     }
                     catch (SocketException ex)
@@ -247,8 +244,9 @@ namespace TelemetryMonitor
         }
 
         private void Process(byte[] data,string ip,bool simulated,int sourcePort=0,long captureFrame=0)
-        {ProcessReceived(data,ip,simulated,sourcePort,captureFrame,EventStamp.Now(),"");}
-        private void ProcessReceived(byte[] data, string ip, bool simulated, int sourcePort, long captureFrame, EventStamp stamp, string destination)
+        {ProcessReceived((byte[])data.Clone(),ip,simulated,sourcePort,captureFrame,EventStamp.Now());}
+        // Socket and capture readers hand over a fresh array. Retained records share it as read-only.
+        private void ProcessReceived(byte[] data, string ip, bool simulated, int sourcePort, long captureFrame, EventStamp stamp)
         {
             // Keep the actual receive timestamp even when processing waited for Gate.
             if (!simulated && stamp != null && stamp.DataSeconds > 0)
@@ -265,9 +263,8 @@ namespace TelemetryMonitor
             SourceState src;
             if (!sources.TryGetValue(ip, out src)) sources[ip] = src = new SourceState { IP = ip };
             src.Received++; src.LastReceived = DateTime.UtcNow;
-            // Raw SPP and abnormal records may keep this immutable copy after the next packet arrives.
-            lastDatagram = (byte[])data.Clone();
-            lastDatagramInfo = new { length = data.Length, time = BeijingTime.Now.ToString("HH:mm:ss.fff"), result = "收到，等待协议识别" };
+            lastDatagram = data;
+            string receiveTime = BeijingTime.Format(stamp.ReceivedUtc,"HH:mm:ss.fff");
             Settings cfg = Config;
             Packet p = null;
             PacketRoute route = null;
@@ -286,17 +283,17 @@ namespace TelemetryMonitor
                     if (rawMatched && route.Definition == null && !route.Ambiguous)
                     {
                         if (rawValid) { src.LastValid = DateTime.UtcNow; src.OfflineConditionActive = false; }
-                        lastDatagramInfo = new { length = data.Length, time = BeijingTime.Now.ToString("HH:mm:ss.fff"), result = "SPP原包已独立留存；未参与遥测解码" };
+                        lastDatagramInfo = new { length = data.Length, time = receiveTime, result = "SPP原包已独立留存；未参与遥测解码" };
                         return;
                     }
                     if (route.Definition == null) parseError = route.Reason;
                     else
                     {
-                        definition = PacketCodec.AtOffset(route.Definition, route.Offset);
+                        definition = route.Definition;
                         packetCount = PacketCountersFor(definition.Id);
                         packetCount.Received++;
                         packetCount.LastMatch=stamp.ObservedUtc;
-                        p = rawParsed != null && rawParsed.PacketId == definition.Id ? rawParsed : PacketCodec.Parse(data, definition);
+                        p = rawParsed != null && rawParsed.PacketId == definition.Id ? rawParsed : PacketCodec.ParseAt(data, definition, route.Offset);
                         plan = RuntimeDecodePlan(definition.Id);
                         cfg = plan.Settings;
                     }
@@ -335,16 +332,18 @@ namespace TelemetryMonitor
                 Invalid++; src.Invalid++;
                 RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, parseError, definition, !unrecognized, NativeDecoder ? route ?? rejectedRoute : null);
                 string rejection = unrecognized ? "SPP未识别（信息，不告警）：" + parseError : parseError;
-                lastDatagramInfo = new { length = data.Length, time = BeijingTime.Now.ToString("HH:mm:ss.fff"), result = rejection };
-                if (lastReject != parseError || (DateTime.UtcNow - lastRejectAt).TotalSeconds >= 5)
+                lastDatagramInfo = new { length = data.Length, time = receiveTime, result = rejection };
+                if (stamp.DataSeconds >= rejectionWindowEnd)
                 {
-                    lastReject = parseError; lastRejectAt = DateTime.UtcNow;
-                    Note(unrecognized ? "info" : "warn", rejection, false);
+                    rejectionWindowEnd = stamp.DataSeconds + 5;
+                    recentRejectionMessages.Clear();
                 }
+                // Keep all counters and raw records. Bound synchronous run-log writes when invalid packets alternate.
+                if (recentRejectionMessages.Count < 32 && recentRejectionMessages.Add(parseError))
+                    Note(unrecognized ? "info" : "warn", rejection, false);
                 return;
             }
             src.LastValid = DateTime.UtcNow; src.OfflineConditionActive = false;
-            lastDatagramInfo = new { length = data.Length, time = BeijingTime.Now.ToString("HH:mm:ss.fff"), result = "SPP已识别；校验" + (p.ChecksumVerified ? "通过" : "待核实") };
             string key = ip + ":" + p.Apid + (NativeDecoder ? ":" + p.PacketId : "");
             SequenceTracker tracker;
             if (!sequences.TryGetValue(key, out tracker)) sequences[key] = tracker = new SequenceTracker();
@@ -354,6 +353,7 @@ namespace TelemetryMonitor
             {
                 Duplicates++; src.Duplicates++; packetCount.Duplicates++;
                 packetCount.LastOutcome="帧计数重复，已跳过解码";
+                lastDatagramInfo = new { length = data.Length, time = receiveTime, result = packetCount.LastOutcome };
                 RecordAlarm("warn", "重复帧", "帧计数重复，已忽略：APID=" + p.Apid + "，计数=" + p.Sequence, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
                 return;
             }
@@ -382,11 +382,16 @@ namespace TelemetryMonitor
                 packetCount.LastValidFrame=stamp.ObservedUtc;
                 RecordPacketFreshness(NativeDecoder ? definition.Id : "legacy-apid-" + p.Apid, ip);
             }
-            lastPacket = lastDatagram;
+            string outcome = validPacket ? "SPP已识别；校验通过" : !String.IsNullOrEmpty(p.Warning) ? p.Warning : "SPP校验待核实";
+            lastDatagramInfo = new { length = data.Length, time = receiveTime, result = outcome };
             bool decode = (cfg.MappingConfirmed || simulated) && validPacket && (NativeDecoder || p.Apid == cfg.ParameterApid);
             if (!String.IsNullOrEmpty(p.Warning)) RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, p.Warning, definition, resolved: route);
-            packetInfo = new { apid = p.Apid, sequence = p.Sequence, datagramLength = data.Length, sppOffset = p.Offset, sppLength = p.Length,
-                checksum = p.ChecksumVerified ? "通过" : "待核实", decoding = decode, warning = p.Warning, packetId = p.PacketId, packetName = p.PacketName, time = BeijingTime.Now.ToString("HH:mm:ss.fff") };
+            if (validPacket)
+            {
+                lastPacket = data;
+                packetInfo = new { apid = p.Apid, sequence = p.Sequence, datagramLength = data.Length, sppOffset = p.Offset, sppLength = p.Length,
+                    checksum = "通过", decoding = decode, warning = p.Warning, packetId = p.PacketId, packetName = p.PacketName, time = receiveTime };
+            }
             packetCount.LastOutcome = !validPacket ? p.Warning ?? "校验未通过" : "有效新帧，未启用参数解码";
             if (decode)
             {

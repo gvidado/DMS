@@ -104,7 +104,7 @@ namespace TelemetryMonitor
                         replayFrames++; replayDelivered++; replayBytes = position; replayCaptureMs = due;
                         replayLagMs = Math.Max(0, (ReplayPositionMs() - due) / replaySpeed);
                         if (previousSection != frame.Section) { sequences.Clear(); previousSection = frame.Section; }
-                        ProcessReceived(frame.Payload,frame.SourceIP,true,frame.SourcePort,frame.Number,EventStamp.Now(new DateTime(frame.TimestampTicks,DateTimeKind.Utc),"PCAP_CAPTURE"),frame.DestinationIP);
+                        ProcessReceived(frame.Payload,frame.SourceIP,true,frame.SourcePort,frame.Number,EventStamp.Now(new DateTime(frame.TimestampTicks,DateTimeKind.Utc),"PCAP_CAPTURE"));
                     }
                 }, () => replayCancel.WaitOne(0));
                 lock (Gate)

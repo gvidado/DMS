@@ -26,7 +26,15 @@ namespace TelemetryMonitor
         private int sequencePosition {get{return CurrentSequence.Position;}set{CurrentSequence.Position=value;}}
         private int sequenceGroup {get{return CurrentSequence.Group;}set{CurrentSequence.Group=value;}}
         private int sequenceGroupEnd {get{return CurrentSequence.GroupEnd;}set{CurrentSequence.GroupEnd=value;}}
-        private List<SequenceStepRun> sequenceRows {get{return CurrentSequence.Rows;}set{CurrentSequence.Rows=value;}}
+        private List<SequenceStepRun> sequenceRows
+        {
+            get{return CurrentSequence.Rows;}
+            set
+            {
+                for(int index=0;index<value.Count;index++)value[index].Index=index;
+                CurrentSequence.Rows=value;
+            }
+        }
         private long sequenceCatalogRevision {get{return CurrentSequence.CatalogRevision;}set{CurrentSequence.CatalogRevision=value;}}
         private string sequenceDecoderRevision {get{return CurrentSequence.DecoderRevision;}set{CurrentSequence.DecoderRevision=value;}}
         private string sequenceTCRevision {get{return CurrentSequence.TCRevision;}set{CurrentSequence.TCRevision=value;}}
@@ -134,7 +142,8 @@ namespace TelemetryMonitor
             {
                 if(!sequenceRunning || runId!=sequenceRunId || !sequencePaused)throw new InvalidOperationException("当前没有等待继续的序列");
                 sequencePausedSeconds+=RuleSeconds()-sequencePauseBegan;sequencePaused=false;sequenceClock.Start();sequenceReason="运行中";Interlocked.Increment(ref CurrentSequence.Generation);
-                foreach(var row in sequenceRows.Where(r=>r.Begun&&!r.Terminal)){ResetSequenceBaseline(row);row.CommandSince=RuleSeconds();row.CommandSinceUtc=DateTime.UtcNow;}
+                foreach(var row in CurrentSequence.ActiveRows.Where(r=>r.Begun&&!r.Terminal))
+                {ResetSequenceBaseline(row);row.CommandSince=RuleSeconds();row.CommandSinceUtc=DateTime.UtcNow;}
                 if(sequencePosition<sequenceRows.Count)
                 {
                     var row=sequenceRows[sequencePosition];
@@ -279,9 +288,14 @@ namespace TelemetryMonitor
         }
         private SequenceSendWork TakeSequenceSendWork()
         {
-            if(!sequenceRunning||sequencePaused)return null;
-            for(int i=0;i<sequenceRows.Count;i++){var row=sequenceRows[i];if(row.SendPending&&!row.Terminal&&SequenceNow>=row.Due){row.SendPending=false;row.Status="发送中";return new SequenceSendWork{RunId=sequenceRunId,Index=i,Number=row.Step.CommandNumber,Code=row.Step.Code,SendCode=row.Step.SendCode,AllDestinations=row.Step.AllDestinations,Actor=sequenceActor+" / 序列"+sequenceRunId};}}
-            return null;
+            // Only a serial step or a PAR/CHANGE boundary may actively send a command.
+            if(!sequenceRunning||sequencePaused||sequencePosition>=sequenceRows.Count)return null;
+            var row=sequenceRows[sequencePosition];
+            if(!row.SendPending||row.Terminal||SequenceNow<row.Due)return null;
+            row.SendPending=false;
+            row.Status="发送中";
+            return new SequenceSendWork{RunId=sequenceRunId,Index=sequencePosition,Number=row.Step.CommandNumber,
+                Code=row.Step.Code,SendCode=row.Step.SendCode,AllDestinations=row.Step.AllDestinations,Actor=sequenceActor+" / 序列"+sequenceRunId};
         }
 
         internal bool SequenceCanSendCore(SequenceSendWork work)
@@ -290,7 +304,7 @@ namespace TelemetryMonitor
         {
             lock(Gate)
             {
-                if(!sequenceRunning || work.RunId!=sequenceRunId)return;var row=sequenceRows[work.Index];
+                if(!sequenceRunning || work.RunId!=sequenceRunId || work.Index<0 || work.Index>=sequenceRows.Count)return;var row=sequenceRows[work.Index];
                 if(!ok){SequenceFail(row,"异常","UDP发送失败："+reason);return;}
                 row.CommandDone=true;row.CommandDataSince=sentAt.HasValue&&sentAt.Value>0?sentAt.Value:work.SendBegan>0?work.SendBegan:row.CommandSince;
                 SequenceAudit("指令发送",row,"已发出","");
@@ -304,7 +318,7 @@ namespace TelemetryMonitor
             lock(sequenceQueueGate)
             {
                 if(sequenceQueue.Count>=2000 || sequenceQueueBytes+record.Payload.Length>16*1024*1024)sequenceOverflow=true;
-                else{sequenceQueue.Enqueue(new SequenceCapturedEvent{Record=record,Generations=generations,Time=RuleSeconds()});sequenceQueueBytes+=record.Payload.Length;}
+                else{sequenceQueue.Enqueue(new SequenceCapturedEvent{Record=record,Generations=generations,Time=record.ObservedMonotonic/(double)Stopwatch.Frequency});sequenceQueueBytes+=record.Payload.Length;}
                 if(!sequencePump){sequencePump=true;schedule=true;}
             }
             if(schedule)ThreadPool.QueueUserWorkItem(ignored=>DrainSequenceCommands());
@@ -314,18 +328,37 @@ namespace TelemetryMonitor
             while(true)
             {
                 SequenceCapturedEvent pending=null;bool overflow;
-                lock(sequenceQueueGate){overflow=sequenceOverflow;sequenceOverflow=false;if(sequenceQueue.Count>0){pending=sequenceQueue.Dequeue();sequenceQueueBytes-=pending.Record.Payload.Length;}else{sequencePump=false;if(!overflow)return;}}
+                lock(sequenceQueueGate)
+                {
+                    overflow=sequenceOverflow;
+                    sequenceOverflow=false;
+                    if(sequenceQueue.Count>0){pending=sequenceQueue.Dequeue();sequenceQueueBytes-=pending.Record.Payload.Length;}
+                    else if(!overflow){sequencePump=false;return;}
+                }
+                CommandMatch match=null;
+                HashSet<string> codes=null;
                 EachSequence(()=>
                 {
                     if(overflow&&sequenceRunning)StopSequenceCore("指令事件队列溢出，序列终止");
-                    long observed=-1;if(pending!=null)pending.Generations.TryGetValue(sequenceRunId,out observed);
-                    if(pending==null || !sequenceRunning || sequencePaused || (!pending.Generations.ContainsKey(sequenceRunId)||observed!=Interlocked.Read(ref CurrentSequence.Generation)))return;
+                    long observed;
+                    if(pending==null || !sequenceRunning || sequencePaused ||
+                        !pending.Generations.TryGetValue(sequenceRunId,out observed) || observed!=Interlocked.Read(ref CurrentSequence.Generation))return;
                     try
                     {
-                        var record=pending.Record;if(record.SourceIP!=Outgoing.Commands.BindingSource)return;var match=Outgoing.Commands.MatchCommand(record.Payload);var matches=match.Entries;var codes=ObservedCommands.MatchingCodes(match,record.DestinationIP,tcBindings.Bindings);
-                        foreach(var row in sequenceRows.Where(r=>r.Begun&&!r.Terminal&&!r.CommandDone&&r.Step.Code.Length>0&&!r.SendPending&&r.Status!="发送中").ToArray())
+                        var record=pending.Record;
+                        if(record.SourceIP!=Outgoing.Commands.BindingSource)return;
+                        var waiting=CurrentSequence.ActiveRows.Where(r=>r.Begun&&!r.Terminal&&!r.CommandDone&&r.Step.Code.Length>0&&!r.SendPending&&r.Status!="发送中")
+                            .OrderBy(r=>r.Index).ToArray();
+                        if(waiting.Length==0)return;
+                        if(match==null)
                         {
-                            if(pending.Time<row.CommandSince || record.Time.ToUniversalTime()<row.CommandSinceUtc || !row.Step.Destinations.Contains(record.DestinationIP) || !codes.Contains(row.Step.SendCode) || !matches.Any(m=>m.MatchesNumber(row.Step.CommandNumber)))continue;
+                            match=Outgoing.Commands.MatchCommand(record.Payload);
+                            codes=ObservedCommands.MatchingCodes(match,record.DestinationIP,tcBindings.Bindings);
+                        }
+                        if(codes.Count==0)return;
+                        foreach(var row in waiting)
+                        {
+                            if(pending.Time<row.CommandSince || record.Time.ToUniversalTime()<row.CommandSinceUtc || !row.Step.Destinations.Contains(record.DestinationIP) || !codes.Contains(row.Step.SendCode) || !match.Entries.Any(m=>m.MatchesNumber(row.Step.CommandNumber)))continue;
                             CheckSequenceDeadline(row);if(!sequenceRunning)return;if(row.Terminal)continue;
                             row.HistoryCommandEvents=new[]{record.HistoryEventId};row.CommandDone=true;row.CommandDataSinceUtc=record.Time.ToUniversalTime();SequenceAudit("指令监视",row,"已监视到",record.DestinationIP);
                             if(row.Step.Predicate==null)SequenceComplete(row);else{row.Status="等待参数";EvaluateSequenceRow(row);if(!sequenceRunning)return;}

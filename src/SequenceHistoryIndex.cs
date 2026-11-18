@@ -18,6 +18,7 @@ namespace TelemetryMonitor
         {
             internal readonly Dictionary<string, List<SequenceHistoryLocation>> Runs = new Dictionary<string, List<SequenceHistoryLocation>>(StringComparer.Ordinal);
             internal readonly Dictionary<string, SequenceRunSummary> Summaries = new Dictionary<string, SequenceRunSummary>(StringComparer.Ordinal);
+            internal readonly List<SequenceRunSummary> RunsByStart = new List<SequenceRunSummary>();
             internal readonly List<SequenceHistoryLocation> All = new List<SequenceHistoryLocation>();
             internal readonly List<SequenceHistoryLocation> Judge = new List<SequenceHistoryLocation>();
             internal readonly List<SequenceHistoryLocation> Execute = new List<SequenceHistoryLocation>();
@@ -105,6 +106,7 @@ namespace TelemetryMonitor
                 summary = new SequenceRunSummary { RunId = entry.RunId, Code = entry.Code, Name = entry.Sequence,
                     Mode = entry.Mode, StartedAt = entry.Time, Order = index.Summaries.Count };
                 index.Summaries.Add(entry.RunId, summary);
+                index.RunsByStart.Add(summary);
             }
             if (entry.Event == "开始")
             {

@@ -41,6 +41,7 @@ namespace TelemetryMonitor
         private string lastSequenceSendRun="";
         // The cursor and task registry are serialized by Gate; nested CALLs restore the cursor.
         private SequenceRuntimeContext sequenceContext;
+        internal bool HasActiveSequenceTasks {get{return captureSequenceTasks.Length>0;}}
         private SequenceRuntimeContext CurrentSequence {get{return sequenceContext??emptySequence;}}
         private bool AnySequenceRunning {get{return sequenceTasks.Values.Any(c=>c.Running);}}
         private SequenceRuntimeContext SequenceContext(string mode)
@@ -79,11 +80,23 @@ namespace TelemetryMonitor
         internal object SequenceSummaryForRun(string runId){lock(Gate)return InSequence(SequenceTask(runId),()=>SequenceSummaryCore());}
         internal object SequenceState(string id,int page,string mode="judge",string runId="")
         {
+            SequenceRuntimeContext selected;
             lock(Gate)
             {
-                if(runId.Length>0){var context=SequenceTask(runId);return context.DetailsArchived?ArchivedSequenceState(context,page):InSequence(context,()=>SequenceStateCore(context.Definition.Id,page));}
-                var definition=sequenceConfiguration.Sequences.FirstOrDefault(d=>d.Id==id);var selected=SequenceContext(definition==null?mode:definition.Mode);return selected.DetailsArchived&&selected.Definition.Id==id?ArchivedSequenceState(selected,page):InSequence(selected,()=>SequenceStateCore(id,page));
+                if(runId.Length>0)
+                {
+                    selected=SequenceTask(runId);
+                    id=selected.Definition.Id;
+                }
+                else
+                {
+                    var definition=sequenceConfiguration.Sequences.FirstOrDefault(d=>d.Id==id);
+                    selected=SequenceContext(definition==null?mode:definition.Mode);
+                }
+                if(!selected.DetailsArchived||selected.Definition.Id!=id)
+                    return InSequence(selected,()=>SequenceStateCore(id,page));
             }
+            return ArchivedSequenceState(selected,page);
         }
         internal List<SequenceStep> PrepareSequence(string id,SequenceStartOptions start=null)
         {return InSequence(new SequenceRuntimeContext(),()=>PrepareSequenceCore(id,start));}
@@ -130,7 +143,19 @@ namespace TelemetryMonitor
         internal bool SequenceCanSend(SequenceSendWork work)
         {lock(Gate){SequenceRuntimeContext context;return sequenceTasks.TryGetValue(work.RunId,out context)&&InSequence(context,()=>SequenceCanSendCore(work));}}
         internal void SequenceSent(SequenceSendWork work,bool ok,string reason,double? sentAt=null,string[] eventIds=null)
-        {lock(Gate){SequenceRuntimeContext context;if(sequenceTasks.TryGetValue(work.RunId,out context))InSequence(context,()=>{context.Rows[work.Index].HistoryCommandEvents=eventIds??new string[0];SequenceSentCore(work,ok,reason,sentAt);});RefreshSequenceTasks();}}
+        {
+            lock(Gate)
+            {
+                SequenceRuntimeContext context;
+                if(!sequenceTasks.TryGetValue(work.RunId,out context)||!context.Running||work.Index<0||work.Index>=context.Rows.Count)return;
+                InSequence(context,()=>
+                {
+                    context.Rows[work.Index].HistoryCommandEvents=eventIds??new string[0];
+                    SequenceSentCore(work,ok,reason,sentAt);
+                });
+                RefreshSequenceTasks();
+            }
+        }
 
         private long sequenceCallRevision;
         private string sequenceCallSourceRun="",sequenceCallTargetRun="",sequenceCallTargetId="";

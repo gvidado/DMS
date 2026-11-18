@@ -24,12 +24,15 @@ namespace TelemetryMonitor
         private static uint U32(byte[] b, int p, bool little)
         { return little ? (uint)(b[p] | b[p + 1] << 8 | b[p + 2] << 16 | b[p + 3] << 24) : (uint)(b[p] << 24 | b[p + 1] << 16 | b[p + 2] << 8 | b[p + 3]); }
         private static int U16(byte[] b, int p, bool little) { return little ? b[p] | b[p + 1] << 8 : b[p] << 8 | b[p + 1]; }
-        private static byte[] Read(Stream stream, int length)
+        private static void Read(Stream stream, byte[] bytes, int offset, int length)
         {
-            var bytes = new byte[length]; int done = 0, count;
-            while (done < length && (count = stream.Read(bytes, done, length - done)) > 0) done += count;
-            if (done != length) throw new ArgumentException("pcapng文件在字节" + stream.Position + "处截断");
-            return bytes;
+            int end=offset+length;
+            while(offset<end)
+            {
+                int count=stream.Read(bytes,offset,end-offset);
+                if(count<=0)throw new ArgumentException("pcapng文件在字节" + stream.Position + "处截断");
+                offset+=count;
+            }
         }
         private static DateTime? Timestamp(uint hi, uint lo, CaptureInterface face)
         {
@@ -37,7 +40,9 @@ namespace TelemetryMonitor
             {
                 decimal resolution = (decimal)face.Resolution; if (resolution == 0) return null;
                 decimal ticks = (decimal)(((ulong)hi << 32) | lo) * resolution * 10000000m + (decimal)face.Offset * 10000000m;
-                return new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddTicks(checked((long)Decimal.Round(ticks, 0, MidpointRounding.AwayFromZero)));
+                var utc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                    .AddTicks(checked((long)Decimal.Round(ticks,0,MidpointRounding.AwayFromZero)));
+                return utc.Ticks <= DateTime.MaxValue.Ticks-8*TimeSpan.TicksPerHour ? (DateTime?)utc : null;
             }
             catch (ArgumentException) { return null; }
             catch (OverflowException) { return null; }
@@ -54,24 +59,28 @@ namespace TelemetryMonitor
             {
                 bool little = true, sectionSeen = false; long section = 0, frames = 0;
                 var faces = new List<CaptureInterface>();
-                while (file.Position < file.Length)
+                const int maxBlockLength=4*1024*1024;
+                var block=new byte[4096];
+                long fileLength=file.Length;
+                while (file.Position < fileLength)
                 {
                     if (cancelled()) return;
-                    long start = file.Position; byte[] head = Read(file, 12);
-                    bool shb = head[0] == 10 && head[1] == 13 && head[2] == 13 && head[3] == 10;
+                    long start = file.Position; Read(file,block,0,12);
+                    bool shb = block[0] == 10 && block[1] == 13 && block[2] == 13 && block[3] == 10;
                     if (shb)
                     {
-                        if (U32(head, 8, true) == 0x1A2B3C4D) little = true;
-                        else if (U32(head, 8, false) == 0x1A2B3C4D) little = false;
+                        if (U32(block, 8, true) == 0x1A2B3C4D) little = true;
+                        else if (U32(block, 8, false) == 0x1A2B3C4D) little = false;
                         else throw new ArgumentException("pcapng节头字节序标识无效，字节位置" + start);
                     }
                     else if (!sectionSeen) throw new ArgumentException("文件不是pcapng，请在Wireshark中导出为pcapng格式");
-                    uint length = U32(head, 4, little), type = U32(head, 0, little);
-                    if (length < (shb ? 28u : 12u) || length % 4 != 0 || length > 4 * 1024 * 1024 || start + length > file.Length)
+                    uint length = U32(block, 4, little), type = U32(block, 0, little);
+                    if (length < (shb ? 28u : 12u) || length % 4 != 0 || length > maxBlockLength || start + length > fileLength)
                         throw new ArgumentException("pcapng块长度无效或文件截断，字节位置" + start);
-                    var block = new byte[(int)length]; Array.Copy(head, block, 12);
-                    byte[] tail = Read(file, (int)length - 12); Array.Copy(tail, 0, block, 12, tail.Length);
-                    if (U32(block, (int)length - 4, little) != length) throw new ArgumentException("pcapng块首尾长度不一致，字节位置" + start);
+                    if(length>block.Length)Array.Resize(ref block, Math.Min(maxBlockLength,Math.Max((int)length,block.Length*2)));
+                    Read(file,block,12,(int)length-12);
+                    int trailer=(int)length-4;
+                    if (U32(block,trailer,little) != length) throw new ArgumentException("pcapng块首尾长度不一致，字节位置" + start);
                     if (shb)
                     {
                         if (U16(block, 12, little) != 1) throw new ArgumentException("不支持的pcapng主版本");
@@ -81,11 +90,11 @@ namespace TelemetryMonitor
                     {
                         if (length < 20 || faces.Count >= 128) throw new ArgumentException("pcapng接口块损坏或每节接口数超过128");
                         var face = new CaptureInterface { Link = U16(block, 8, little), Snap = U32(block, 12, little) };
-                        for (int p = 16; p < block.Length - 4; )
+                        for (int p = 16; p < trailer; )
                         {
-                            if (p + 4 > block.Length - 4) throw new ArgumentException("pcapng接口选项截断");
+                            if (p + 4 > trailer) throw new ArgumentException("pcapng接口选项截断");
                             int code = U16(block, p, little), size = U16(block, p + 2, little); p += 4;
-                            if (p + ((size + 3) & ~3) > block.Length - 4) throw new ArgumentException("pcapng接口选项长度越界");
+                            if (p + ((size + 3) & ~3) > trailer) throw new ArgumentException("pcapng接口选项长度越界");
                             if (code == 0) { if (size != 0) throw new ArgumentException("pcapng选项结束标志无效"); break; }
                             if (code == 9)
                             { if (size != 1) throw new ArgumentException("pcapng时间精度选项长度无效"); byte power = block[p]; face.Resolution = Math.Pow((power & 128) != 0 ? 2 : 10, -(power & 127)); }
@@ -118,42 +127,41 @@ namespace TelemetryMonitor
                     DateTime? timestamp = type == 3 ? null : Timestamp(hi, lo, faces[(int)faceId]);
                     var frame = new CaptureFrame { Number = ++frames, Section = section, FileOffset = start, DataFileOffset = start + dataAt, LinkType = faces[(int)faceId].Link, CapturedLength = captured,
                         Time = timestamp.HasValue ? BeijingTime.Format(timestamp.Value,"yyyy-MM-dd HH:mm:ss.fffffff") : "", TimestampTicks = timestamp.HasValue ? timestamp.Value.Ticks : -1 };
-                    byte[] packet = new byte[captured]; Array.Copy(block, dataAt, packet, 0, captured);
                     if ((uint)captured < original) frame.Issue = "抓包截断：保存的字节少于原报文长度";
-                    else Extract(frame, packet);
+                    else Extract(frame,block,dataAt,captured);
                     consume(frame, file.Position);
                 }
                 if (!sectionSeen) throw new ArgumentException("pcapng文件为空或缺少节头");
             }
         }
-        public static void ExtractUdp(CaptureFrame frame, byte[] b) { Extract(frame, b); }
-        private static void Extract(CaptureFrame frame, byte[] b)
+        public static void ExtractUdp(CaptureFrame frame,byte[] b) { Extract(frame,b,0,b.Length); }
+        private static void Extract(CaptureFrame frame,byte[] b,int start,int captured)
         {
-            int p = 0, protocol = 0;
+            int p=start, end=start+captured, protocol=0;
             switch (frame.LinkType)
             {
                 case 1:
-                    if (b.Length < 14) { frame.Issue = "以太网帧过短"; return; }
-                    protocol = Protocol.U16(b, 12); p = 14;
+                    if (captured < 14) { frame.Issue = "以太网帧过短"; return; }
+                    protocol = Protocol.U16(b, start+12); p = start+14;
                     for (int tags = 0; protocol == 0x8100 || protocol == 0x88A8 || protocol == 0x9100; tags++)
-                    { if (tags >= 4 || b.Length - p < 4) { frame.Issue = "VLAN头截断或嵌套过多"; return; } protocol = Protocol.U16(b, p + 2); p += 4; }
+                    { if (tags >= 4 || end - p < 4) { frame.Issue = "VLAN头截断或嵌套过多"; return; } protocol = Protocol.U16(b, p + 2); p += 4; }
                     break;
-                case 101: if (b.Length > 0) protocol = (b[0] >> 4) == 4 ? 0x800 : 0x86dd; break;
+                case 101: if (captured > 0) protocol = (b[start] >> 4) == 4 ? 0x800 : 0x86dd; break;
                 case 228: protocol = 0x800; break;
                 case 0: case 108:
-                    if (b.Length < 4) { frame.Issue = "回环头过短"; return; }
-                    protocol = U32(b, 0, true) == 2 || U32(b, 0, false) == 2 ? 0x800 : 0x86dd; p = 4; break;
+                    if (captured < 4) { frame.Issue = "回环头过短"; return; }
+                    protocol = U32(b, start, true) == 2 || U32(b, start, false) == 2 ? 0x800 : 0x86dd; p = start+4; break;
                 case 113:
-                    if (b.Length < 16) { frame.Issue = "Linux SLL头过短"; return; } protocol = Protocol.U16(b, 14); p = 16; break;
+                    if (captured < 16) { frame.Issue = "Linux SLL头过短"; return; } protocol = Protocol.U16(b, start+14); p = start+16; break;
                 case 276:
-                    if (b.Length < 20) { frame.Issue = "Linux SLL2头过短"; return; } protocol = Protocol.U16(b, 0); p = 20; break;
+                    if (captured < 20) { frame.Issue = "Linux SLL2头过短"; return; } protocol = Protocol.U16(b, start); p = start+20; break;
                 default: frame.Unsupported = true; frame.Issue = "暂不支持链路类型" + frame.LinkType; return;
             }
             if (protocol == 0x86dd) { frame.Unsupported = true; frame.Issue = "IPv6报文未检验（当前支持IPv4 UDP）"; return; }
             if (protocol != 0x800) return;
-            if (b.Length - p < 20 || (b[p] >> 4) != 4) { frame.Issue = "IPv4头截断或版本无效"; return; }
+            if (end - p < 20 || (b[p] >> 4) != 4) { frame.Issue = "IPv4头截断或版本无效"; return; }
             int header = (b[p] & 15) * 4, total = Protocol.U16(b, p + 2);
-            if (header < 20 || total < header || total > b.Length - p) { frame.Issue = "IPv4长度无效或报文截断"; return; }
+            if (header < 20 || total < header || total > end - p) { frame.Issue = "IPv4长度无效或报文截断"; return; }
             frame.SourceIP = new IPAddress(new byte[] { b[p + 12], b[p + 13], b[p + 14], b[p + 15] }).ToString();
             frame.DestinationIP = new IPAddress(new byte[] { b[p + 16], b[p + 17], b[p + 18], b[p + 19] }).ToString();
             if ((Protocol.U16(b, p + 6) & 0x3fff) != 0) { frame.Unsupported = true; frame.Issue = "IP分片未重组，请先在Wireshark确认完整UDP报文"; return; }
@@ -164,7 +172,7 @@ namespace TelemetryMonitor
             int length = Protocol.U16(b, udp + 4);
             if (length < 8 || length != total - header) { frame.Issue = "UDP长度字段与IPv4数据长度不一致"; return; }
             frame.Payload = new byte[length - 8]; Array.Copy(b, udp + 8, frame.Payload, 0, length - 8);
-            frame.PayloadFileOffset = frame.DataFileOffset + udp + 8; frame.PayloadLength = length - 8;
+            frame.PayloadFileOffset = frame.DataFileOffset + (udp-start) + 8; frame.PayloadLength = length - 8;
         }
     }
 }

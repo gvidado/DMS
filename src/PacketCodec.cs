@@ -81,8 +81,9 @@ namespace TelemetryMonitor
             return Resolve(data, null, new[] { d }).Offset;
         }
         public static Packet Parse(byte[] data, PacketDefinition d)
-        {return Parse(data,d,null);}
-        internal static Packet Parse(byte[] data,PacketDefinition d,bool? checksumVerified)
+        {return ParseAt(data,d,null);}
+
+        internal static Packet ParseAt(byte[] data,PacketDefinition d,int? resolvedOffset,bool? checksumVerified=null)
         {
             if (data == null || data.Length > 65507) throw new ArgumentException("UDP长度越界");
             if(d.OuterSourceId>=0)
@@ -91,7 +92,7 @@ namespace TelemetryMonitor
                 if(Protocol.U16(data,4)+1!=data.Length-6)throw new ArgumentException("外层长度不符：字段+1="+(Protocol.U16(data,4)+1)+"，实际内容="+(data.Length-6));
             }
             if (d.ExpectedDatagramLength != 0 && d.ExpectedDatagramLength != data.Length) throw new ArgumentException("UDP长度不符：收到" + data.Length + "，要求" + d.ExpectedDatagramLength);
-            int at = FindOffset(data, d), minimum = d.SecondaryHeader == 1 ? 18 : 8;
+            int at = resolvedOffset ?? FindOffset(data, d), minimum = d.SecondaryHeader == 1 ? 18 : 8;
             if (at < 0) throw new ArgumentException("未找到符合包标识及长度的SPP包，检查SPP偏移与包长");
             if (data.Length - at < minimum) throw new ArgumentException("SPP包过短");
             if (Protocol.U16(data, at) != Identifier(d)) throw new ArgumentException("主导头包标识不符，要求0x" + Identifier(d).ToString("X4"));

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 
 namespace TelemetryMonitor
@@ -17,7 +16,7 @@ namespace TelemetryMonitor
         {
             lock (sequenceHistoryIndexGate)
             {
-                return UpdateSequenceHistoryIndex().Summaries.Values.OrderByDescending(r => r.Order)
+                return UpdateSequenceHistoryIndex().RunsByStart.AsEnumerable().Reverse()
                     .Select(r => r.Copy()).ToArray();
             }
         }
@@ -29,11 +28,27 @@ namespace TelemetryMonitor
         {return (run.Code+" "+run.Name+" "+run.RunId+" "+run.StartedAt).IndexOf(search,StringComparison.OrdinalIgnoreCase)>=0;}
         private HashSet<string> MatchingSequenceRuns(string search)
         {search=SequenceRunSearchText(search);return search.Length==0?null:new HashSet<string>(SequenceRunSummaries().Where(r=>MatchSequenceRun(r,search)).Select(r=>r.RunId));}
-        internal object SequenceRunsPage(int page,string search,string mode="")
+        internal object SequenceRunsPage(int page,string search,string mode="",string knownRevision="")
         {
-            if(page<1 || page>10000)throw new ArgumentException("运行列表页码须为1至10000");search=SequenceRunSearchText(search);CheckSequenceHistoryMode(mode);
-            var matches=SequenceRunSummaries().Where(r=>(mode.Length==0||r.Mode==mode)&&MatchSequenceRun(r,search)).ToArray();int pages=Math.Max(1,(matches.Length+49)/50);page=Math.Min(page,pages);
-            return new{page,pages,total=matches.Length,rows=matches.Skip((page-1)*50).Take(50).ToArray(),error=sequenceHistoryError};
+            if(page<1||page>10000)throw new ArgumentException("运行列表页码须为1至10000");
+            search=SequenceRunSearchText(search);
+            CheckSequenceHistoryMode(mode);
+            lock(sequenceHistoryIndexGate)
+            {
+                var index=UpdateSequenceHistoryIndex();
+                string revision=index.Generation.ToString("N")+"-"+index.Position;
+                if(sequenceHistoryError.Length==0&&String.Equals(knownRevision,revision,StringComparison.Ordinal))
+                    return new{unchanged=true,revision};
+                IList<SequenceRunSummary> matches=index.RunsByStart;
+                if(mode.Length>0||search.Length>0)
+                    matches=matches.Where(r=>(mode.Length==0||r.Mode==mode)&&(search.Length==0||MatchSequenceRun(r,search))).ToList();
+                int pages=Math.Max(1,(matches.Count+49)/50);
+                page=Math.Min(page,pages);
+                int end=matches.Count-(page-1)*50;
+                var rows=new List<SequenceRunSummary>(50);
+                for(int i=end-1;i>=Math.Max(0,end-50);i--)rows.Add(matches[i].Copy());
+                return new{page,pages,total=matches.Count,rows,error=sequenceHistoryError,revision};
+            }
         }
     }
 }

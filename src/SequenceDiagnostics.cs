@@ -25,12 +25,14 @@ namespace TelemetryMonitor
         }
         internal object SequenceDiagnostic(string id,string mode,string runId="")
         {
+            SequenceRuntimeContext context;
             lock(Gate)
             {
-                var context=runId.Length>0?SequenceTask(runId):SequenceContext(SequenceDefinition(id).Mode);
-                if(context.DetailsArchived)return new{runtime=context.FrozenSummary,note="本次运行已结束，以下为保存时的判读诊断，不使用当前参数代替历史值。",rows=judgmentArchives.ReadSequenceRun(context.RunId).Where(e=>e.Diagnostic!=null).Select(e=>new{e.Row,e.Event,e.Status,e.Values,e.Diagnostic}).ToArray()};
-                var definition=runId.Length>0?context.Definition:SequenceDefinition(id);id=definition.Id;
-                return InSequence(context,()=>
+                var requested=runId.Length>0 ? null : SequenceDefinition(id);
+                context=runId.Length>0 ? SequenceTask(runId) : SequenceContext(requested.Mode);
+                var definition=requested??context.Definition;
+                id=definition.Id;
+                if(!context.DetailsArchived||context.Definition.Id!=id)return InSequence(context,()=>
                 {
                     bool current=sequenceDefinition!=null && sequenceDefinition.Id==id;
                     return (object)new{generatedAt=BeijingTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"),engineBuild=typeof(Monitor).Assembly.ManifestModule.ModuleVersionId.ToString(),
@@ -44,6 +46,9 @@ namespace TelemetryMonitor
                             lastValues=new Dictionary<string,object>(row.Values),parameters=row.Step.Predicate==null?new object[0]:row.Step.Predicate.Fields.Select(p=>SequenceParameterDiagnostic(row,p.Key,p.Value)).ToArray()}).ToArray():new object[0]};
                 });
             }
+            var rows=judgmentArchives.ReadSequenceRun(context.RunId).Where(e=>e.Diagnostic!=null)
+                .Select(e=>new{e.Row,e.Event,e.Status,e.Values,e.Diagnostic}).ToArray();
+            return new{runtime=context.FrozenSummary,note="本次运行已结束，以下为保存时的判读诊断，不使用当前参数代替历史值。",rows};
         }
     }
 }

@@ -34,6 +34,9 @@ def main():
             start();c.call('/api/sequence/runs',expected=401);c.call('/api/auth/setup',dict(username='searchqa',name='QA',password=password));c.csrf=c.call('/api/auth/login',dict(username='searchqa',password=password))['csrf']
             runs=query('runs',page=1);check(runs['total']==63 and runs['pages']==2 and len(runs['rows'])==50,'run list pages all historical runs rather than only current or recent events')
             check(query('runs',page=2)['rows'][-1]['RunId']==f'{1:032x}','oldest run remains selectable through run-list pagination')
+            unchanged=query('runs',page=1,since=runs['revision'])
+            check(unchanged.get('unchanged') and 'rows' not in unchanged,
+                  'unchanged run list sends a revision instead of the same page of rows')
             same=query('runs',search='同名试验');check(same['total']==2 and len({r['RunId'] for r in same['rows']})==2 and same['rows'][0]['StartedAt']!=same['rows'][1]['StartedAt'],'same-name repeated runs remain distinct with timestamps and unique run IDs')
             check(query('runs',search='xlp0001')['total']==2,'code lookup is case-insensitive and returns each execution of the code')
             check(query('history',search='同名试验')['total']==6 and len(exported(search='同名试验'))==6,'name filtering includes all events of matching runs even when individual events lack a name/code')

@@ -268,7 +268,7 @@ window.SequenceUI=(()=>{
   });
   function revokeSequencePreview(token){if(token)api('sequence/preview/cancel',{token}).catch(()=>{});}
   function releaseSequencePreview(){revokeSequencePreview(importToken||preview?.token);importToken='';}
-  let renderedConversion=null, historyRevision='', historyQuery='';
+  let renderedConversion=null, historyRevision='', historyQuery='', runListRevision='', runListQuery='';
   function hideConversionReport(){
     conversionPanel.open=false;
     conversionPanel.classList.add('hidden');
@@ -554,7 +554,11 @@ window.SequenceUI=(()=>{
   async function loadRuns(force=false){
     if(!app.user||activeTask||(runListLoading&&!force))return;runListLoading=true;nextRunList=Date.now()+8000;const epoch=generation,request=++runListRequest,search=historySearch,page=runListPage,mode=activeTask?runMode:'';
     try{
-      const data=await api('sequence/runs?'+new URLSearchParams({page:String(page),search,mode}));if(epoch!==generation||activeTask||mode!==''||request!==runListRequest||search!==historySearch||page!==runListPage)return;
+      const query=new URLSearchParams({page:String(page),search,mode}),key=query.toString();
+      if(!force&&key===runListQuery&&runListRevision)query.set('since',runListRevision);
+      const data=await api('sequence/runs?'+query);
+      if(epoch!==generation||activeTask||mode!==''||request!==runListRequest||search!==historySearch||page!==runListPage||data.unchanged)return;
+      runListQuery=key;runListRevision=data.revision;
       runListPage=data.page;runListPages=data.pages;const selector=$('sequence-history-scope'),selected=selector.value,oldLabel=selector.selectedOptions[0]?.textContent||selected;
       const options=[new Option('全部匹配运行','all'),new Option('当前运行','current')];
       for(const run of data.rows)options.push(new Option(run.StartedAt+' · '+(run.Code||'旧记录无序列号')+' · '+run.Name+' · '+run.Status+' · '+run.RunId.slice(0,8),run.RunId));
@@ -623,7 +627,7 @@ window.SequenceUI=(()=>{
   window.addEventListener('abnormal-records-changed',()=>{if(app.user&&runViewActive())history();});
   function render(){if(!app.user)return;const now=Date.now();if(!['sequence-config','sequence-run','sequence-execute'].includes(app.view))return;activateRunMode();if(now-lastRefresh>700){lastRefresh=now;pollLaunch();if(runViewActive()&&activeTask)refreshRun();}if(runViewActive()&&now-lastHistory>4000){lastHistory=now;history();}}
   function reset(){
-    historyQuery=historyRevision='';
+    historyQuery=historyRevision=runListQuery=runListRevision='';
     importToken='';importProgress.textContent='';hideConversionReport();groupEdits.clear();$('sequence-import-group').value='';$('sequence-group-names').replaceChildren();$('sequence-import-existing-group').replaceChildren(new Option('请选择已有分组',''));updateImportGroups();
     configGroupSelection=runGroupSelections.judge=runGroupSelections.execute='';
     for(const id of ['sequence-config-group','sequence-launch-group'])fillGroupFilter($(id),[],'');

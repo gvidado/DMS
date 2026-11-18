@@ -34,7 +34,7 @@ namespace TelemetryMonitor
         {
             DateTime received=ServerTime(monotonic);
             return new EventStamp{ReceivedUtc=received,ObservedUtc=captured.HasValue?captured.Value.ToUniversalTime():received,
-                Monotonic=monotonic,DataSeconds=Monitor.RuleSeconds(),Basis=basis??(captured.HasValue?"CAPTURE_TIME":"SOCKET_RECEIVE")};
+                Monotonic=monotonic,DataSeconds=monotonic/(double)Stopwatch.Frequency,Basis=basis??(captured.HasValue?"CAPTURE_TIME":"SOCKET_RECEIVE")};
         }
     }
 }

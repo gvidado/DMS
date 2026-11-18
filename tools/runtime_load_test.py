@@ -47,6 +47,14 @@ def main():
     if remaining>0:time.sleep(remaining)
    until(lambda:admin.call('/api/state')['received']>=total,'all packets received',seconds=20);state=admin.call('/api/state');assert state['accepted']==total and state['invalid']==state['lost']==state['duplicates']==0,state;until(lambda:all(s['lastAccepted']==total for s in stats),'all browsers updated');assert not errors,errors
    raw=admin.call('/api/raw-spp/list');assert raw['retained']==1200 and all(p['retained']==200 for p in raw['packets']),raw
+   ids=[record['id'] for page in range(1,raw['pages']+1)
+        for record in admin.call('/api/raw-spp/list?page='+str(page))['records']]
+   assert len(set(ids))==1200 and ids==list(range(2400,1200,-1))
+   assert admin.call('/api/raw-spp/detail?id=2400')['record']['id']==2400
+   admin.call('/api/raw-spp/detail?id=1200',expected=400)
+   admin.call('/api/raw-spp/clear',dict(packetId='p0'))
+   remaining=admin.call('/api/raw-spp/list')
+   assert remaining['retained']==1000 and all(record['packetId']!='p0' for record in remaining['records'])
    rules=admin.call('/api/continuous-rules');assert rules['execution']['running'] and all(r['result']=='Normal' for r in rules['rows']);report=dict(parameters=1500,enabledRules=1500,clients=7,sent=total,received=state['received'],accepted=state['accepted'],invalid=state['invalid'],lost=state['lost'],duplicates=state['duplicates'],requestedRate=rate,seconds=time.monotonic()-started,streams=stats,rawRetained=raw['retained'],errors=errors);out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(report,ensure_ascii=False));print('PASS seven clients, 2400 real UDP packets, continuous judgment and bounded raw retention.')
   finally:
    stop.set();sender.close()

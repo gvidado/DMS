@@ -31,7 +31,7 @@ def main():
         for folder in ['web','native','database']:shutil.copytree(ROOT/folder,root/folder)
         def save(name,value):(root/'config'/name).write_text(json.dumps(value),encoding='utf-8')
         cfg=json.loads((root/'config/decoder.json').read_text(encoding='utf-8'));base=cfg['Packets'][0];base.update(Name='TME正常流',MonitorRaw=False)
-        b0=copy.deepcopy(base);b0.update(Id='b0',Name='TMB0202回退流',OuterSourceId=0x0202)
+        b0=copy.deepcopy(base);b0.update(Id='b0',Name='TMB0202回退流',OuterSourceId=0x0202,StrictLength=False)
         b1=copy.deepcopy(base);b1.update(Id='b1',Name='TMB0422回退流',OuterSourceId=0x0422,Groups=['备用'])
         field=copy.deepcopy(cfg['Catalog']['Parameters'][0]);field.update(Id='备用/A2',Code='A2',Group='备用',Name='备用流参数')
         cfg['Catalog']['Parameters'].append(field);cfg['Catalog']['Sheets'].append(dict(Name='备用',Index=3));cfg['Packets']+=[b0,b1];save('decoder.json',cfg)
@@ -130,6 +130,32 @@ def main():
                 browser=subprocess.run([str(runtime/'bin/node.exe'),str(ROOT/'tools/telemetry_resync_browser.mjs'),str(runtime)],input=json.dumps(data),text=True,encoding='utf-8',capture_output=True,timeout=60,creationflags=subprocess.CREATE_NO_WINDOW)
                 assert browser.returncode==0,browser.stdout+browser.stderr
                 check('PASS' in browser.stdout,'browser displays each SPP new-frame count, current sequence and latest resync details')
+            clean=telemetry(0x0202,3128,2345)
+            sender.sendto(clean,('127.0.0.1',settings['UdpPort']))
+            wait(lambda:c.call('/api/packet')['hex'].replace(' ','').lower()==clean.hex(),'new valid packet source')
+            length_warning=bytearray(telemetry(0x0202,3129,999))
+            length_warning[10:12]=(len(length_warning)-12).to_bytes(2,'big')
+            seal(length_warning)
+            before=state()['received']
+            sender.sendto(length_warning,('127.0.0.1',settings['UdpPort']))
+            wait(lambda:state()['received']==before+1,'length diagnostic datagram')
+            preview=c.call('/api/packet')
+            check(bytes.fromhex(preview['hex'])==clean and bytes.fromhex(preview['rawHex'])==length_warning
+                  and '长度' in preview['rawInfo']['result'],'only valid frames replace the last-valid preview')
+            bad_checksum=bytearray(telemetry(0x0202,3130,111))
+            bad_checksum[-1]^=1
+            not_matched=telemetry(0x0102,3130,111)
+            before=state()
+            last_event=before['events'][0]['Id'] if before['events'] else 0
+            for _ in range(35):
+                for datagram in (bad_checksum,not_matched):
+                    sender.sendto(datagram,('127.0.0.1',settings['UdpPort']))
+            wait(lambda:state()['received']==before['received']+70,'alternating malformed UDP frames')
+            after=state()
+            notes=[event for event in after['events'] if event['Id']>last_event
+                   and ('累加和校验失败' in event['Message'] or 'SPP未识别（信息，不告警）' in event['Message'])]
+            check(1<=len(notes)<=2 and after['invalid']==before['invalid']+70,
+                  'alternating bad packets retain their counts but share a bounded run log')
             c.call('/api/control',dict(action='stop'))
             (exe.parent/'telemetry-resync-report.json').write_text(json.dumps(dict(checks=len(checks),details=checks),ensure_ascii=False,indent=2),encoding='utf-8')
         except Exception:

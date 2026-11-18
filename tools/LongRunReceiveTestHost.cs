@@ -73,11 +73,12 @@ internal static class LongRunReceiveTestHost
     }
     private static void WithStamp(TelemetryMonitor.Monitor monitor,byte[] bytes,double ageSeconds,DateTime utc)
     {
-        var stampType=typeof(TelemetryMonitor.Monitor).Assembly.GetType("TelemetryMonitor.HistoryStamp");
+        var receive=monitor.GetType().GetMethod("ProcessReceived",Private);
+        var stampType=receive.GetParameters()[5].ParameterType;
         var stamp=Activator.CreateInstance(stampType,true);
         foreach(var pair in new[]{new KeyValuePair<string,object>("ReceivedUtc",DateTime.UtcNow),new KeyValuePair<string,object>("ObservedUtc",utc),new KeyValuePair<string,object>("Monotonic",Stopwatch.GetTimestamp()),new KeyValuePair<string,object>("DataSeconds",TelemetryMonitor.Monitor.RuleSeconds()-ageSeconds),new KeyValuePair<string,object>("Basis","SOCKET_RECEIVE")})
             stampType.GetField(pair.Key,BindingFlags.Instance|BindingFlags.NonPublic).SetValue(stamp,pair.Value);
-        monitor.GetType().GetMethod("ProcessReceived",Private).Invoke(monitor,new object[]{bytes,"127.0.0.1",false,6000,0L,stamp,"127.0.0.1"});
+        receive.Invoke(monitor,new object[]{bytes,"127.0.0.1",false,6000,0L,stamp});
     }
     private static int Main(string[] args)
     {

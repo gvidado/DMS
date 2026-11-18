@@ -92,6 +92,9 @@ def main():
             for i in range(14):begin(instant,'完成任务'+str(i))
             check(state(a)['rows']==archive_before and state(a)['runtime']['name']=='同名任务','evicted old task details reload exactly from its own immutable archive')
             diag=c.call('/api/sequence/diagnostic?runId='+a);check(diag['runtime']['runId']==a,'diagnostic export resolves an older run ID after detail cache eviction')
+            unrelated=c.call('/api/sequence/diagnostic?id='+p['Id'])
+            check(unrelated.get('runtimeMatchesSelection') is False and unrelated['definition']['Id']==p['Id'] and not unrelated['rows'],
+                  'requesting a different definition cannot return cached diagnostics from the archived last execution')
             archive_path=next((root/'data/archives/sequences').rglob(a+'.jsonl'));archive=archive_path.read_bytes();check(archive and all(json.loads(line)['RunId']==a for line in archive.splitlines()),'each independent task has its own durable archive')
             first_data=state(b)['rows'][1]['values'];check(first_data and state(b)['rows'][1]['status']=='通过','successful engineering values survive task cache eviction')
             live_runs=[begin(j,'全停判读'+str(i))[0]['runId'] for i in range(2)]+[begin(p,'全停执行'+str(i))[0]['runId'] for i in range(2)]

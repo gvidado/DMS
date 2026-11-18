@@ -12,6 +12,8 @@ function setText(id, value) { const el = $(id); const s = String(value); if (el.
 const numberFormatter=new Intl.NumberFormat('zh-CN');
 function number(value) { return numberFormatter.format(Number(value || 0)); }
 const metricCells=new Map();
+const overviewPackets=new Map();
+let overviewPacketOrder=null, overviewDiagnosticLabels='';
 function metric(id,value,unit){let cell=metricCells.get(id);if(!cell){const text=document.createTextNode('');$(id).replaceChildren(text,element('small','',unit));cell={text,value:null};metricCells.set(id,cell);}const next=String(value)+' ';if(cell.value!==next){cell.text.nodeValue=next;cell.value=next;}}
 function parameterReference(p) { const code = String(p.Code ?? p.code ?? '').trim(); return p.Reference || p.reference || (code ? /^(?:TM|TME|TMB)\./.test(code) ? code : 'TM.' + code : ''); }
 function parameterValueReference(p) { return p.ValueReference || p.valueReference || parameterReference(p) + '.value'; }
@@ -188,8 +190,6 @@ function renderState() {
   setText('side-last', src?.lastTime || '—');
   if(app.view==='parameters')renderParameters();
   else window.ParameterDisplayUI?.render();
-  const eventStamp = s.events[0]?.Id || '';
-  if (String(eventStamp) !== app.lastEvents) { app.lastEvents = String(eventStamp); renderEvents(); }
   if (app.view === 'overview') renderOverview();
 }
 function statusClass(s) { return s === '有效' ? 'good' : ['解码无效', '连接中断'].includes(s) ? 'bad' : s === '过期' || s === '待核实' ? 'warn' : 'neutral'; }
@@ -203,12 +203,57 @@ function renderEvents() {
   $('recent-events').replaceChildren(recent); $('all-events').replaceChildren(all);
 }
 function renderOverview() {
-  const s = app.state; if (!s) return; const p = s.packet;
+  const s=app.state;
+  if(!s)return;
+  const eventStamp=String(s.events[0]?.Id||'');
+  if(eventStamp!==app.lastEvents){app.lastEvents=eventStamp;renderEvents();}
+  const p=s.packet;
   const fields = [['接收字节', number(s.bytes) + ' B'], ['有效新帧', number(s.accepted)], ['无效报文', number(s.invalid)], ['来源过滤', number(s.filtered)], ['重复帧', number(s.duplicates)], ['疑似缺帧', number(s.lost)], ['计数重同步', number(s.outOfOrder)], ['运行时长', Math.floor(s.elapsed) + ' s'], ['收包处理等待', s.processingDelayMs==null?'—':number(s.processingDelayMs)+' ms'], ['最大处理等待', s.maxProcessingDelayMs==null?'—':number(s.maxProcessingDelayMs)+' ms'], ['最近APID', p ? p.apid + ' / 0x' + p.apid.toString(16).toUpperCase() : '—'], ['14位帧计数', p?.sequence ?? '—'], ['SPP偏移 / 长度', p ? p.sppOffset + ' / ' + p.sppLength : '—'], ['累加和校验', p?.checksum || '待接收']];
   if (s.multicastGroup) fields.unshift(['组播组 / 目的端口', s.multicastGroup + ':' + s.port], ['已加入本机网卡', (s.multicastInterfaces || []).join(', ') || '未监听']);
-  const f = document.createDocumentFragment(); fields.forEach(([k, v]) => { const item = element('div', 'diag-item'); item.append(element('div', '', k), element('div', 'diag-value', v)); f.append(item); }); $('diagnostic-grid').replaceChildren(f);
-  const rows = document.createDocumentFragment(), statistics = s.packetStatistics || [];
-  for (const entry of statistics) {
+  const diagnostic=$('diagnostic-grid'), labels=fields.map(([label])=>label).join('\0');
+  if(labels!==overviewDiagnosticLabels){
+    const fragment=document.createDocumentFragment();
+    for(const [label,value] of fields){
+      const item=element('div','diag-item');
+      item.append(element('div','',label),element('div','diag-value',value));
+      fragment.append(item);
+    }
+    diagnostic.replaceChildren(fragment);
+    overviewDiagnosticLabels=labels;
+  }else{
+    fields.forEach(([,value],index)=>{
+      const node=diagnostic.children[index].lastElementChild,text=String(value);
+      if(node.textContent!==text)node.textContent=text;
+    });
+  }
+  const statistics=s.packetStatistics||[];
+  renderPacketStatistics(statistics);
+  const mode = s.packetStatisticsMode === 'demo' ? '文件演示' : '实时监听';
+  setText('packet-stat-session', s.packetStatisticsMode ? '本次' + mode + ' · 启动于 ' + s.packetStatisticsStartedAt + (s.mode === 'stopped' ? ' · 已停止，保留本次统计' : ' · 正在接收') : '等待启动监听，以下按当前已启用的SPP包显示');
+  setText('packet-stat-summary', statistics.length + '个已启用SPP包 · 已收 ' + number(statistics.reduce((sum, entry) => sum + entry.received, 0)) + ' · 重复 ' + number(statistics.reduce((sum, entry) => sum + entry.duplicates, 0)));
+}
+function renderPacketStatistics(statistics){
+  const body=$('packet-stat-rows'),order=JSON.stringify(statistics.map(entry=>entry.id));
+  const reordered=overviewPacketOrder!==order;
+  if(reordered)overviewPackets.clear();
+  for(const entry of statistics){
+    const signature=JSON.stringify(entry), previous=overviewPackets.get(entry.id);
+    if(previous?.signature===signature)continue;
+    const node=packetStatisticRow(entry);
+    if(previous)previous.node.replaceWith(node);
+    overviewPackets.set(entry.id,{node,signature});
+  }
+  if(!reordered)return;
+  overviewPacketOrder=order;
+  if(statistics.length)body.replaceChildren(...[...overviewPackets.values()].map(row=>row.node));
+  else{
+    const row=element('tr'),cell=element('td','muted','当前没有已启用的SPP包，请在“解码配置”中启用需要接收的包。');
+    cell.colSpan=12;
+    row.append(cell);
+    body.replaceChildren(row);
+  }
+}
+function packetStatisticRow(entry){
     const row = element('tr'); row.dataset.packetId = entry.id;
     const identity = element('td'); identity.append(element('div', 'param-name', entry.name));
     const hex = (value, width) => '0x' + Number(value).toString(16).toUpperCase().padStart(width, '0');
@@ -220,13 +265,8 @@ function renderOverview() {
     for(const time of [entry.lastMatch,entry.lastValidFrame,entry.lastParameterUpdate])row.append(element('td','mono spp-timestamp',time||'—'));
     const outcome=element('td','spp-result',entry.lastOutcome||'—');
     if(entry.lastOutcome)outcome.title=entry.lastOutcome;
-    row.append(outcome);rows.append(row);
-  }
-  if (!statistics.length) { const row = element('tr'), cell = element('td', 'muted', '当前没有已启用的SPP包，请在“解码配置”中启用需要接收的包。'); cell.colSpan = 12; row.append(cell); rows.append(row); }
-  $('packet-stat-rows').replaceChildren(rows);
-  const mode = s.packetStatisticsMode === 'demo' ? '文件演示' : '实时监听';
-  setText('packet-stat-session', s.packetStatisticsMode ? '本次' + mode + ' · 启动于 ' + s.packetStatisticsStartedAt + (s.mode === 'stopped' ? ' · 已停止，保留本次统计' : ' · 正在接收') : '等待启动监听，以下按当前已启用的SPP包显示');
-  setText('packet-stat-summary', statistics.length + '个已启用SPP包 · 已收 ' + number(statistics.reduce((sum, entry) => sum + entry.received, 0)) + ' · 重复 ' + number(statistics.reduce((sum, entry) => sum + entry.duplicates, 0)));
+    row.append(outcome);
+    return row;
 }
 async function control(action) {
   if (app.busy) return; app.busy = true; $('listen-button').disabled = true; $('demo-button').disabled = true;

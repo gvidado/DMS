@@ -10,6 +10,12 @@ try{
   assert.match(await b0.locator('.spp-result').textContent(),/参数已更新/);
   assert.ok(Number(await b0.locator('[data-field="accepted"]').textContent())>1);assert.equal(await b0.locator('[data-field="last-sequence"]').textContent(),'3127');
   assert.match(await b0.locator('[data-field="resync"]').getAttribute('title'),/3130 → 3126/);
-  assert.match(await page.locator('#diagnostic-grid').textContent(),/计数重同步/);assert.deepEqual(errors,[]);
+  assert.match(await page.locator('#diagnostic-grid').textContent(),/计数重同步/);
+  assert.equal(await page.evaluate(()=>{
+    const row=document.querySelector('#packet-stat-rows tr[data-packet-id="b0"]');
+    const field=document.querySelector('#diagnostic-grid .diag-value');
+    renderOverview();
+    return row===document.querySelector('#packet-stat-rows tr[data-packet-id="b0"]')&&field===document.querySelector('#diagnostic-grid .diag-value');
+  }),true);assert.deepEqual(errors,[]);
   await page.locator('.spp-stat-panel').screenshot({path:config.screenshot});console.log('PASS live packet diagnostics show accepted frames, last sequence and per-stream resync details');
 }finally{await browser.close();}

@@ -26,7 +26,7 @@ namespace TelemetryMonitor
         private void InitializeSequenceService(){sequenceTimer=new Timer(SequenceServiceTick,null,25,25);}
         private void SequenceServiceTick(object ignored)
         {
-            if(!running || Interlocked.Exchange(ref sequenceServiceBusy,1)!=0)return;
+            if(!running || !liveMonitor.HasActiveSequenceTasks || Interlocked.Exchange(ref sequenceServiceBusy,1)!=0)return;
             try
             {
                 lock(commandGate)
@@ -58,7 +58,7 @@ namespace TelemetryMonitor
                 Json(ctx.Response,new{ok=true},200);return true;
             }
             if(path=="/api/sequence/definition" && method=="GET")
-            {var definition=monitor.SequenceDefinition(Query(ctx.Request,"id"));var config=JsonFile.Decode<Dictionary<string,object>>(JsonFile.Encode(monitor.SequenceConfigurationInfo()));Json(ctx.Response,monitor.SequenceValidate(definition,Convert.ToDouble(config["defaultTimeout"])),200);return true;}
+            {var definition=monitor.SequenceDefinition(Query(ctx.Request,"id"));Json(ctx.Response,monitor.SequenceValidate(definition,monitor.SequenceDefaultTimeout),200);return true;}
             if(path=="/api/sequence/tasks" && method=="GET"){Json(ctx.Response,monitor.SequenceTaskList(),200);return true;}
             if(path=="/api/sequence/tasks" && method=="POST")
             {var body=Body(ctx.Request,8*1024*1024);object value;var retain=body.TryGetValue("retain",out value)?JsonFile.Decode<List<string>>(JsonFile.Encode(value)):null;Json(ctx.Response,monitor.SequenceTaskList(Text(body,"activeOnly")=="True",retain),200);return true;}
@@ -73,6 +73,7 @@ namespace TelemetryMonitor
                 string group=Monitor.CheckSequenceGroup(Query(ctx.Request,"group"));
                 var definitions=WorkbookReader.ReadSequences(BinaryBody(ctx.Request),filename,mode);
                 foreach(var definition in definitions){definition.SourceIP=source;definition.Group=group;}
+                object result;
                 lock(commandGate)
                 {
                     SequenceImportPreview preview=null;
@@ -100,13 +101,16 @@ namespace TelemetryMonitor
                     else preview.Definitions.AddRange(definitions);
                     preview.Created=DateTime.UtcNow;
                     // A batch reply carries only the newly read workbook. The token saves all selected definitions together.
-                    Json(ctx.Response,new{token=preview.Token,definitions=checkedDefinitions,conversion},200);
+                    result=new{token=preview.Token,definitions=checkedDefinitions,conversion};
                 }
+                Json(ctx.Response,result,200);
                 return true;
             }
             if(path=="/api/sequence/recheck" && method=="POST")
             {
-                var body=Body(ctx.Request,8*1024*1024);lock(commandGate)
+                var body=Body(ctx.Request,8*1024*1024);
+                object result;
+                lock(commandGate)
                 {
                     SequenceImportPreview previous;
                     if(!sequencePreviews.TryGetValue(Text(body,"token"),out previous) || previous.OwnerSession!=session.Token || (DateTime.UtcNow-previous.Created).TotalMinutes>10)throw new ArgumentException("预览已过期，请重新读取Excel");
@@ -125,9 +129,10 @@ namespace TelemetryMonitor
                         .Select(d => monitor.SequenceValidate(d, previous.Timeout)).ToArray();
                     previous.Definitions = definitions;
                     previous.Created = DateTime.UtcNow;
-                    Json(ctx.Response, new { token = previous.Token, definitions = checkedDefinitions,
-                        conversion = singleSheet ? null : previous.Conversion, editId = previous.EditId }, 200);
+                    result=new { token=previous.Token, definitions=checkedDefinitions,
+                        conversion=singleSheet?null:previous.Conversion, editId=previous.EditId };
                 }
+                Json(ctx.Response,result,200);
                 return true;
             }
             if(path=="/api/sequence/export-converted" && method=="POST")
@@ -183,12 +188,12 @@ namespace TelemetryMonitor
                         string requestId=Text(body,"requestId");if(!System.Text.RegularExpressions.Regex.IsMatch(requestId,@"^[a-f0-9]{32}$"))throw new ArgumentException("启动请求标识无效，请刷新页面");string requestKey=session.Username+":"+requestId,oldRun;
                         if(sequenceStartRequests.TryGetValue(requestKey,out oldRun)){Json(ctx.Response,monitor.SequenceSummaryForRun(oldRun),200);return true;}
                         controlMode=monitor.SequenceDefinition(id).Mode;
-                        var saved=JsonFile.Decode<Dictionary<string,object>>(JsonFile.Encode(monitor.SequenceConfigurationInfo()));if(Text(body,"revision")!=Convert.ToString(saved["revision"]))throw new InvalidOperationException("序列配置已变化，请重新载入后启动");
+                        if(Text(body,"revision")!=monitor.SequenceConfigurationRevision)throw new InvalidOperationException("序列配置已变化，请重新载入后启动");
                         var start=Monitor.ParseSequenceStart(Text(body,"startRow"),Text(body,"t0Elapsed"),Text(body,"f0Elapsed"));
                         string runName=Monitor.CheckSequenceRunName(Text(body,"runName"));var steps=monitor.PrepareSequence(id,start);
                         foreach(var step in Monitor.SequenceJumpSteps(steps.Skip(Monitor.SequenceStartIndex(steps,start))).Where(s=>s.Mode=="execute"&&!s.Inside&&s.Code.Length>0))commandTransmitter.CheckSequenceCommand(step);
                         runId=monitor.StartSequence(id,steps,auth.User(session).DisplayName+"（"+session.Username+"）",commandTransmitter.SequenceRevision,runName,start);
-                        var started=JsonFile.Decode<Dictionary<string,object>>(JsonFile.Encode(monitor.SequenceSummaryForRun(runId)));sequenceStartRequests[requestKey]=Convert.ToString(started["runId"]);
+                        sequenceStartRequests[requestKey]=runId;
                         if(sequenceStartRequests.Count>256)sequenceStartRequests.Remove(sequenceStartRequests.Keys.First(k=>k!=requestKey));
                     }
                     else if(action=="stop")
@@ -200,7 +205,7 @@ namespace TelemetryMonitor
                 return true;
             }
             if(path=="/api/sequence/runs" && method=="GET")
-            {int page;if(!Int32.TryParse(Query(ctx.Request,"page"),out page))page=1;Json(ctx.Response,monitor.SequenceRunsPage(page,Query(ctx.Request,"search"),Query(ctx.Request,"mode")),200);return true;}
+            {int page;if(!Int32.TryParse(Query(ctx.Request,"page"),out page))page=1;Json(ctx.Response,monitor.SequenceRunsPage(page,Query(ctx.Request,"search"),Query(ctx.Request,"mode"),Query(ctx.Request,"since")),200);return true;}
             if(path=="/api/sequence/history" && method=="GET")
             {int page;if(!Int32.TryParse(Query(ctx.Request,"page"),out page))page=1;string result=Query(ctx.Request,"result");Json(ctx.Response,monitor.SequenceHistoryPage(page,Query(ctx.Request,"runId"),Query(ctx.Request,"search"),Query(ctx.Request,"mode"),result.Length==0?"all":result,Query(ctx.Request,"since")),200);return true;}
             if(path=="/api/sequence/export.csv" && method=="GET")

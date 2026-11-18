@@ -15,6 +15,7 @@ namespace TelemetryMonitor
         private const double SequenceExpectedDefault=1.0,SequenceMinimumInterval=0.2;
         private string SequenceConfigPath {get{return Path.Combine(root,"config","sequences.json");}}
         internal string SequenceConfigurationRevision {get{lock(Gate)return sequenceConfiguration.Revision;}}
+        internal double SequenceDefaultTimeout {get{lock(Gate)return sequenceConfiguration.DefaultTimeoutSeconds;}}
         private void InitializeSequences()
         {
             if(File.Exists(SequenceConfigPath))try

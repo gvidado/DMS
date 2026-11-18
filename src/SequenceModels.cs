@@ -53,6 +53,7 @@ namespace TelemetryMonitor
     {
         internal string[] HistoryCommandEvents=new string[0];
         public SequenceStep Step;
+        internal int Index;
         public string Status="未开始",Reason="",StartedAt="",FinishedAt="";
         public bool Activated,Begun,Terminal,CommandDone,SendPending,FreshObserved,HadFailure,Episode,Recorded,PauseAcknowledged;
         public double Due,StartTime,ActivatedAt,CommandSince,LastValid;

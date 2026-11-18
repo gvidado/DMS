@@ -16,7 +16,10 @@ namespace TelemetryMonitor
         }
         private object ArchivedSequenceState(SequenceRuntimeContext context,int page)
         {
-            var events=judgmentArchives.ReadSequenceRun(context.RunId);var begin=events.First(e=>e.Event=="开始");var definition=events.LastOrDefault(e=>e.Definition!=null).Definition??begin.Definition;
+            var events=judgmentArchives.ReadSequenceRun(context.RunId);
+            var definitionEvent=events.LastOrDefault(e=>e.Definition!=null);
+            if(definitionEvent==null)throw new InvalidOperationException("该运行存档缺少原始序列定义，请核对原始历史记录");
+            var definition=definitionEvent.Definition;
             int count=definition.Rows.Count,pages=Math.Max(1,(count+49)/50);page=Math.Max(1,Math.Min(pages,page));
             var results=events.Where(e=>e.Event=="步骤结果"&&e.Result!=null).GroupBy(e=>e.Row).ToDictionary(g=>g.Key,g=>g.Last().Result);
             var rows=definition.Rows.Skip((page-1)*50).Take(50).Select(row=>results.ContainsKey(row.Row)?results[row.Row]:new SequenceRowResult{input=row,status="记录不完整",reason="未找到该行最终结果，请查看原始存档"}).ToArray();
