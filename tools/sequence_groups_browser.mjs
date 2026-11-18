@@ -121,6 +121,55 @@ try{
   assert.match(cancellation,/预览已过期/);
   assert.equal(await sheets.count(),0);
   assert.equal(await configSelect.locator('option').count(),6);
-  assert.deepEqual(errors,[]);
   console.log('PASS cancelling a multi-file read revokes the whole draft and ignores the delayed response');
+
+  const configFilter=page.locator('#sequence-config-group');
+  await configFilter.selectOption({label:'批量单项'});
+  assert.equal(await configSelect.locator('option').count(),2);
+  const filtered=await configSelect.locator('option').last().getAttribute('value');
+  assert.match(await configSelect.locator('option').last().textContent(),/批量乙 \/ 需修正/);
+  await configSelect.selectOption(filtered);
+  await page.waitForFunction(()=>document.querySelector('#sequence-preview-name').value==='批量乙 / 需修正');
+  await configFilter.selectOption('group:');
+  assert.equal(await configSelect.locator('option').last().getAttribute('value'),input.oldId);
+  assert.equal(await configSelect.inputValue(),'');
+  await configFilter.selectOption('');
+  assert.equal(await configSelect.locator('option').count(),6);
+
+  await page.locator('#sequence-go-run').click();
+  const runFilter=page.locator('#sequence-launch-group');
+  await runFilter.selectOption({label:'批量单项'});
+  assert.equal(await runSelect.locator('option').count(),2);
+  assert.equal(await runSelect.inputValue(),'');
+  assert(await page.locator('#sequence-start').isDisabled());
+  await runSelect.selectOption(filtered);
+  assert.equal(await page.locator('#sequence-run-name').inputValue(),'批量乙 / 需修正');
+  await page.locator('#sequence-start').click();
+  await page.waitForFunction(()=>document.querySelector('#sequence-start-preview-rows').textContent.includes('第二份工作簿'));
+  await page.locator('#sequence-start-cancel').click();
+  await runFilter.selectOption('group:');
+  assert.equal(await runSelect.locator('option').last().getAttribute('value'),input.oldId);
+  await runFilter.selectOption({label:'批量单项'});
+  assert.equal(await runSelect.inputValue(),filtered);
+  console.log('PASS both sequence lists filter by group and the selected result opens the correct preview');
+
+  await page.evaluate(()=>navigate('sequence-config',true));
+  await page.locator('#sequence-file').setInputFiles(input.conversion);
+  const convert=page.locator('#sequence-convert'),report=page.locator('#sequence-conversion-panel');
+  const summary=report.locator('summary');
+  await convert.click();
+  await summary.waitFor();
+  assert.equal(await report.getAttribute('open'),null);
+  assert.match(await summary.textContent(),/1 项待核对/);
+  await summary.click();
+  assert(await report.locator('.error-text').isVisible());
+  await page.locator('#sequence-recheck').click();
+  await page.waitForFunction(()=>!document.querySelector('#sequence-recheck').disabled);
+  assert.notEqual(await report.getAttribute('open'),null);
+  await convert.click();
+  await summary.waitFor();
+  assert.equal(await report.getAttribute('open'),null);
+  await page.locator('#sequence-import-cancel').click();
+  assert.deepEqual(errors,[]);
+  console.log('PASS a new conversion keeps its warning report collapsed and a manual expansion survives recheck');
 }finally{await browser.close();}

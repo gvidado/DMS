@@ -4,9 +4,9 @@ from pathlib import Path
 from integration_test import ROOT,Client,free_port,wait
 from runtime_benchmark import seed
 
-def envelope(data,function=0xAA,interface=92,width=None):
+def envelope(data,function=0xAA,interface=92,width=None,packet_count=1,packet_index=1):
     width=width or (2 if function==0xAA else 4)
-    raw=struct.pack('<4sIHIIHH',bytes.fromhex('EB90EB90'),len(data)+18+width,170,1,1,0,function)
+    raw=struct.pack('<4sIHIIHH',bytes.fromhex('EB90EB90'),len(data)+18+width,170,packet_count,packet_index,0,function)
     raw+=struct.pack('<H' if width==2 else '<I',interface)+data
     return raw+struct.pack('<I',sum(raw))
 
@@ -67,6 +67,8 @@ def main():
             check(bool(p['errors']) and not p['canApply'],'new AA interfaces over 65535 cannot enter the library');cancel(p)
             bad=c.call('/api/command-send/preview',dict(number=3,code='ZK0003'),expected=400)
             check('65535' in bad['error'],'legacy AA overflow cannot bypass validation through active sending')
+            adapter=next(item for item in c.call('/api/send-monitor/interfaces')['interfaces'] if item['loopback'])
+            c.call('/api/send-monitor/config',dict(SourceIPs=['127.0.0.1'],DestinationIPs=['127.0.0.2','127.0.0.3'],InterfaceId=adapter['id'],DestinationPort=0))
             c.call('/api/control',dict(action='start'));c.call('/api/continuous-rules/control',dict(action='start'))
             waiting=start(jid);wait(lambda:status(waiting)['running'],'waiting judgment');execution=start(sid)
             raw,origin=receiver.recvfrom(65535)
@@ -78,6 +80,33 @@ def main():
                 check(result['ok'] and raw==expected and plan['dataContentStart']==offset,code+' preview and actual send agree on interface width and content boundary')
                 wait(lambda:c.call('/api/send-monitor/list')['records'][0]['commandCode']==code,'matching '+code)
             wait(lambda:states()==[1,1],'non-AA TC dispatch');check(states()==[1,1],'AA and non-AA commands trigger only their corresponding TC event')
+            path=root/'config/observed-commands.json'
+            unchanged=path.read_bytes()
+            with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sender, socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as alternate:
+                sender.bind(('127.0.0.1',0));alternate.bind(('127.0.0.3',0));alternate.settimeout(3)
+                def capture(payload,target=receiver):
+                    total=c.call('/api/send-monitor/state')['total']
+                    sender.sendto(payload,target.getsockname())
+                    assert target.recvfrom(65535)[0]==payload
+                    wait(lambda:c.call('/api/send-monitor/state')['total']==total+1,'captured command')
+                    return c.call('/api/send-monitor/list')['records'][0]
+
+                pieces=[envelope(b'new-1',packet_count=2),envelope(b'new-2',packet_count=2,packet_index=2),
+                        envelope(b'new-high',function=0x1553,packet_count=0x80000100)]
+                for piece in pieces:
+                    record=capture(piece)
+                    detail=c.call('/api/send-monitor/detail?id='+str(record['id']))
+                    assert bytes.fromhex(detail['udpHex'])==piece and not record['commandMatched']
+                check(path.read_bytes()==unchanged,'all multipart pieces remain visible without learning or incrementing catalog counters')
+                known=envelope(b'\0\0\xA1\x39',packet_count=2)
+                check(capture(known)['commandCode']=='ZK0001','the multipart gate preserves monitor matching for known commands')
+                capture(known,alternate)
+                check(path.read_bytes()==unchanged,'multipart captures cannot add destinations to a known catalog command')
+                single=envelope(b'new-1');capture(single)
+                ordinary=b'ordinary UDP payload '+bytes([255])*16;capture(ordinary)
+                learned=disk()['Commands'][-2:]
+                check([entry['Number'] for entry in learned]==[8,9] and [bytes.fromhex(entry['PayloadHex']) for entry in learned]==[single,ordinary],
+                      'single EB90 and ordinary UDP use the original learning path and next numbers')
             c.call('/api/control',dict(action='stop'))
             library_before=(root/'config/observed-commands.json').read_bytes();process.terminate();process.wait(10);process=launch();wait(ready,'restart');login()
             check((root/'config/observed-commands.json').read_bytes()==library_before,'restart does not shrink AA data a second time or rewrite the migrated library')

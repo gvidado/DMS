@@ -7,6 +7,7 @@ namespace TelemetryMonitor
     // Preserve captured bytes; only the identity uses the defined data area.
     public static class CommandEnvelope
     {
+        private const int TotalPacketCountOffset=10;
         private static uint U32(byte[] b,int at)
         {return (uint)(b[at]|b[at+1]<<8|b[at+2]<<16|b[at+3]<<24);}
         private static void Put32(byte[] b,int at,uint n)
@@ -19,6 +20,8 @@ namespace TelemetryMonitor
             int width=storedInterfaceBytes==0?InterfaceTypeBytes((ushort)(packet[20]|packet[21]<<8)):storedInterfaceBytes;
             if(width!=2&&width!=4)return -1;int offset=22+width;return packet.Length>=offset+4?offset:-1;
         }
+        internal static bool HasMultiplePackets(byte[] packet)
+        {return DataOffset(packet)>=0 && U32(packet,TotalPacketCountOffset)>1;}
         public static bool Valid(byte[] b)
         {return Valid(b,0);}
         internal static bool Valid(byte[] b,int storedInterfaceBytes)
@@ -94,7 +97,7 @@ namespace TelemetryMonitor
             var packet=new byte[data.Length+offset+4];
             Buffer.BlockCopy(PacketCodec.Hex("EB90EB90"),0,packet,0,4);
             Put32(packet,4,(uint)(packet.Length-8));packet[8]=(byte)frameCounter;packet[9]=(byte)(frameCounter>>8);
-            Put32(packet,10,1);Put32(packet,14,1);packet[20]=(byte)functionID;packet[21]=(byte)(functionID>>8);
+            Put32(packet,TotalPacketCountOffset,1);Put32(packet,14,1);packet[20]=(byte)functionID;packet[21]=(byte)(functionID>>8);
             for(int i=0;i<width;i++)packet[22+i]=(byte)(interfaceType>>(i*8));
             Buffer.BlockCopy(data,0,packet,offset,data.Length);uint sum=0;for(int i=0;i<packet.Length-4;i++)sum+=packet[i];Put32(packet,packet.Length-4,sum);return packet;
         }

@@ -12,6 +12,7 @@ try{
  await page.locator('#login-username').fill('previewqa');await page.locator('#login-password').fill(input.password);await page.locator('#login-submit').click();await page.locator('#workspace').waitFor({state:'visible'});
  await page.locator('#sequence-launch-mode').selectOption('judge');
  await page.waitForFunction(()=>document.querySelector('#sequence-run-select option')?.textContent.includes('XLP0001'));
+ assert.deepEqual(await page.locator('#sequence-launch-group option').allTextContents(),['全部分组','判读分组']);
  assert.equal(await page.locator('#sequence-run-name').inputValue(),'判读预览演示');
  await page.locator('#sequence-run-name').fill('指定起点检查');await page.locator('#sequence-start-row').fill('53');await page.locator('#sequence-start-t0').fill('T0=10');await page.locator('#sequence-start-f0').fill('F0=20');
  await page.locator('#sequence-start').click();
@@ -44,6 +45,7 @@ try{
  const button=await page.locator('#sequence-start-confirm').boundingBox();assert(button.y>=0&&button.y+button.height<=768);assert.equal(await dialog.locator('p:visible').count(),0);
  await dialog.screenshot({path:join(input.out,'sequence-preview-compact.png')});await page.locator('#sequence-start-cancel').click();checks.push('compact displays keep the action buttons visible');
  await page.locator('#sequence-launch-mode').selectOption('execute');await page.waitForFunction(()=>document.querySelector('#sequence-run-name').value==='执行预览演示');
+ assert.deepEqual(await page.locator('#sequence-launch-group option').allTextContents(),['全部分组','执行分组']);
  await page.locator('#sequence-start').click();await page.waitForFunction(()=>document.querySelector('#sequence-start-preview-page').textContent.includes('共64行'));assert.equal(await dialog.locator('input').count(),0);await page.locator('#sequence-start-cancel').click();checks.push('execution and judgment use the same clean preview');
  await page.evaluate(()=>api('control',{action:'stop'}));assert.deepEqual(errors,[]);
  await writeFile(join(input.out,'sequence-preview-report.json'),JSON.stringify({checks,pageErrors:errors},null,2));for(const check of checks)console.log('PASS '+check);

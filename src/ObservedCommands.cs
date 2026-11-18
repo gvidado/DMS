@@ -196,7 +196,8 @@ namespace TelemetryMonitor
         {
             lock (gate)
             {
-                if (source != configuration.SourceIP) return "";
+                // Captured fragments remain visible and matchable, but never mutate the catalog.
+                if (source != configuration.SourceIP || CommandEnvelope.HasMultiplePackets(payload)) return "";
                 if (!ready) return error;
                 try
                 {

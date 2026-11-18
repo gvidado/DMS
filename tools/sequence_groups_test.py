@@ -38,6 +38,8 @@ def main():
         second_batch = root / '批量乙.xlsx'
         second_batch.write_bytes(xlsx([('需修正', [['UNKNOWN', '第二份工作簿', '', '', '', '', '']]),
                                        ('同名页', [['TEXT', '取消勾选的工作表', '', '', '', '', '']])]))
+        conversion_file = root / '指令转换.xlsx'
+        conversion_file.write_bytes(xlsx([('待核对', [['', '缺少注入指令', 'YKM9999', '', '', '', '']])]))
         password = secrets.token_urlsafe(20)
         process = None
 
@@ -73,7 +75,7 @@ def main():
             assert info['definitions'][0]['Group'] == '' and info['definitions'][0]['Code'] == 'XLP0001'
             auth = root / 'browser-input.json'
             auth.write_text(json.dumps(dict(base=client.base, password=password, workbook=str(workbook), oldId=old_id,
-                                            batch=[str(broken), str(first_batch), str(second_batch)])), encoding='utf-8')
+                                            batch=[str(broken), str(first_batch), str(second_batch)], conversion=str(conversion_file))), encoding='utf-8')
             subprocess.run([os.environ.get('DMS_BROWSER_NODE', 'node'), str(ROOT / 'tools/sequence_groups_browser.mjs'), str(auth)],
                            check=True, timeout=90, creationflags=subprocess.CREATE_NO_WINDOW)
             saved = config_path.read_bytes()
