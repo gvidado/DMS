@@ -13,7 +13,7 @@ namespace TelemetryMonitor
     }
     public sealed class SequenceDefinition
     {
-        public string Id="",Code="",Name="",Mode="judge",Filename="",Sheet="",SourceIP="";
+        public string Id="",Code="",Name="",Mode="judge",Filename="",Sheet="",SourceIP="",Group="";
         public int NextRowNumber;
         public List<SequenceRow> Rows=new List<SequenceRow>();
     }

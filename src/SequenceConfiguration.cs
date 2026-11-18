@@ -34,6 +34,20 @@ namespace TelemetryMonitor
             if(value==null || value.SchemaVersion!=1 || value.Sequences==null || value.Sequences.Count>128)throw new ArgumentException("序列配置格式无效或超过128个序列");
             CheckSequenceTimeout(value.DefaultTimeoutSeconds);
             if(value.Sequences.Any(d=>d==null || !Regex.IsMatch(d.Id??"",@"^[a-f0-9]{32}$") || d.Rows==null || d.Rows.Count>5000 || d.Rows.Any(r=>r==null)) || value.Sequences.Select(d=>d.Id).Distinct().Count()!=value.Sequences.Count)throw new ArgumentException("序列标识、行数或数据无效");
+            foreach(var definition in value.Sequences)definition.Group=CheckSequenceGroup(definition.Group);
+        }
+        internal static string CheckSequenceGroup(string value)
+        {
+            value=value??"";
+            if(value.Any(Char.IsControl))throw new ArgumentException("序列分组名称不能包含控制字符");
+            value=value.Trim();
+            if(value.Length>80)throw new ArgumentException("序列分组名称最多80个字符");
+            return value;
+        }
+        private static object SequenceRuntimeSettings(SequenceConfiguration value)
+        {
+            return new {value.DefaultTimeoutSeconds, Sequences=value.Sequences.Select(d=>
+                new {d.Id,d.Code,d.Name,d.Mode,d.Filename,d.Sheet,d.SourceIP,d.NextRowNumber,d.Rows}).ToArray()};
         }
         private static void CheckSequenceTimeout(double seconds)
         {if(Double.IsNaN(seconds) || Double.IsInfinity(seconds) || seconds<=0 || seconds>604800)throw new ArgumentException("超时须大于0秒且不超过7天");}
@@ -42,7 +56,7 @@ namespace TelemetryMonitor
         internal object SequenceConfigurationInfo()
         {
             lock(Gate)return new{revision=sequenceConfiguration.Revision,defaultTimeout=sequenceConfiguration.DefaultTimeoutSeconds,error=sequenceStorageError,sourceIPs=Config.SourceIPs,
-                definitions=sequenceConfiguration.Sequences.Select(d=>new{d.Id,d.Code,d.Name,d.Mode,d.Filename,d.Sheet,d.SourceIP,count=d.Rows.Count}).ToArray(),runtime=SequenceSummary(),runtimes=SequenceRuntimes(),call=SequenceCallNotice()};
+                definitions=sequenceConfiguration.Sequences.Select(d=>new{d.Id,d.Code,d.Name,d.Mode,d.Filename,d.Sheet,d.SourceIP,d.Group,count=d.Rows.Count}).ToArray(),runtime=SequenceSummary(),runtimes=SequenceRuntimes(),call=SequenceCallNotice()};
         }
         internal object SequenceValidate(SequenceDefinition definition,double timeout)
         {
@@ -165,13 +179,24 @@ namespace TelemetryMonitor
         }
         private static string SequenceCommandSignature(SequenceStep step,ObservedCommand entry)
         {var category=entry.Categories.FirstOrDefault(c=>"TC."+c.Code==step.Code);return CanonicalJson.Encode(new{entry.Number,entry.Name,entry.PayloadHex,sourceCode=step.Code,destinations=(category==null?entry.DestinationIPs:category.DestinationIPs).OrderBy(ip=>ip,StringComparer.Ordinal).ToArray()});}
-        internal void SaveSequences(List<SequenceDefinition> incoming,bool replace,string revision,double timeout)
+        internal void SaveSequences(List<SequenceDefinition> incoming,bool replace,string revision,double timeout,Dictionary<string,string> groups)
         {
             lock(Gate)
             {
                 EnsureSequenceIdle();if(sequenceStorageError.Length>0)throw new InvalidOperationException(sequenceStorageError);if(revision!=sequenceConfiguration.Revision)throw new InvalidOperationException("序列配置已变化，请重新读取预览");
                 var copy=SequenceClone(sequenceConfiguration);copy.DefaultTimeoutSeconds=timeout;if(replace)copy.Sequences.Clear();
-                foreach(var definition in incoming){List<string> errors,warnings;CompileSequence(definition,timeout,out errors,out warnings);if(errors.Count>0)throw new ArgumentException(definition.Name+"："+String.Join("；",errors.Take(30)));if(copy.Sequences.Any(d=>d.Id==definition.Id || d.Name==definition.Name))throw new ArgumentException("已有同名序列，请修改名称或选择替换全部序列："+definition.Name);var item=SequenceClone(definition);var previous=replace?sequenceConfiguration.Sequences.FirstOrDefault(d=>d.Name==item.Name && d.Mode==item.Mode):null;item.Code=previous==null?"":previous.Code;copy.Sequences.Add(item);}
+                foreach(var definition in incoming)
+                {
+                    List<string> errors,warnings;
+                    CompileSequence(definition,timeout,out errors,out warnings);
+                    if(errors.Count>0)throw new ArgumentException(definition.Name+"："+String.Join("；",errors.Take(30)));
+                    if(copy.Sequences.Any(d=>d.Id==definition.Id || d.Name==definition.Name))throw new ArgumentException("已有同名序列，请修改名称或选择替换全部序列："+definition.Name);
+                    var item=SequenceClone(definition);
+                    string group;
+                    if(groups.TryGetValue(item.Id,out group))item.Group=group;
+                    var previous=replace?sequenceConfiguration.Sequences.FirstOrDefault(d=>d.Name==item.Name && d.Mode==item.Mode):null;
+                    item.Code=previous==null?"":previous.Code;copy.Sequences.Add(item);
+                }
                 AssignSequenceNumbers(copy);
                 foreach(var item in copy.Sequences){List<string> graphErrors,graphWarnings;CompileSequence(item,timeout,out graphErrors,out graphWarnings,context:copy);if(graphErrors.Count>0)throw new ArgumentException(item.Code+"："+String.Join("；",graphErrors.Take(30)));}
                 copy.Revision=Guid.NewGuid().ToString("N");CheckSequenceConfig(copy);JsonFile.Save(SequenceConfigPath,copy);sequenceConfiguration=copy;

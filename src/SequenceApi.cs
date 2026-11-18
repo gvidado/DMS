@@ -62,7 +62,9 @@ namespace TelemetryMonitor
                 DateTime requestedAt=DateTime.UtcNow;
                 string filename=Path.GetFileName(Query(ctx.Request,"filename")),mode=Query(ctx.Request,"mode"),source=Query(ctx.Request,"sourceIP");double timeout;
                 if(!filename.EndsWith(".xlsx",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("请选择.xlsx序列文件");if(!Double.TryParse(Query(ctx.Request,"timeout"),System.Globalization.NumberStyles.Float,System.Globalization.CultureInfo.InvariantCulture,out timeout))timeout=0;
-                var definitions=WorkbookReader.ReadSequences(BinaryBody(ctx.Request),filename,mode);foreach(var definition in definitions)definition.SourceIP=source;
+                string group=Monitor.CheckSequenceGroup(Query(ctx.Request,"group"));
+                var definitions=WorkbookReader.ReadSequences(BinaryBody(ctx.Request),filename,mode);
+                foreach(var definition in definitions){definition.SourceIP=source;definition.Group=group;}
                 lock(commandGate)
                 {
                     var conversion=Query(ctx.Request,"convert")=="commands"?monitor.ConvertSequenceCommands(definitions):new List<SequenceConversionEntry>();
@@ -114,7 +116,20 @@ namespace TelemetryMonitor
                     if(!String.IsNullOrEmpty(preview.EditId))throw new ArgumentException("已入库序列请使用保存序列修改，不能作为新导入应用");
                     object input;if(!body.TryGetValue("ids",out input))throw new ArgumentException("请选择要保存的工作表");var ids=JsonFile.Decode<string[]>(JsonFile.Encode(input));if(ids==null||ids.Length==0||ids.Distinct().Count()!=ids.Length||ids.Any(id=>!preview.Definitions.Any(d=>d.Id==id)))throw new ArgumentException("工作表选择无效");
                     string mode=Text(body,"mode");if(mode!="add"&&mode!="replace")throw new ArgumentException("请选择添加或替换");
-                    monitor.SaveSequences(preview.Definitions.Where(d=>ids.Contains(d.Id)).ToList(),mode=="replace",preview.Revision,preview.Timeout);sequencePreviews.Remove(preview.Token);Json(ctx.Response,monitor.SequenceConfigurationInfo(),200);
+                    var selected=new HashSet<string>(ids,StringComparer.Ordinal);
+                    var groups=new Dictionary<string,string>(StringComparer.Ordinal);
+                    if(body.TryGetValue("groups",out input))
+                    {
+                        var assignments=input as Dictionary<string,object>;
+                        if(assignments==null || assignments.Count>selected.Count)throw new ArgumentException("序列分组选择无效");
+                        foreach(var pair in assignments)
+                        {
+                            if(!selected.Contains(pair.Key) || !(pair.Value is string))throw new ArgumentException("序列分组选择无效");
+                            groups.Add(pair.Key,Monitor.CheckSequenceGroup((string)pair.Value));
+                        }
+                    }
+                    monitor.SaveSequences(preview.Definitions.Where(d=>selected.Contains(d.Id)).ToList(),mode=="replace",preview.Revision,preview.Timeout,groups);
+                    sequencePreviews.Remove(preview.Token);Json(ctx.Response,monitor.SequenceConfigurationInfo(),200);
                 }
                 return true;
             }

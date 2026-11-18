@@ -9,7 +9,7 @@ namespace TelemetryMonitor
 {
     internal sealed class RuntimeConfigurationChange
     {
-        internal bool DecoderChanged,CatalogChanged,RulesChanged;
+        internal bool DecoderChanged,CatalogChanged,RulesChanged,SequenceRuntimeChanged;
         internal readonly Dictionary<string,Parameter> ChangedParameters=new Dictionary<string,Parameter>();
         internal readonly HashSet<string> ChangedPacketRoutes=new HashSet<string>();
         internal readonly HashSet<string> RetainedRuleStates=new HashSet<string>();
@@ -33,6 +33,10 @@ namespace TelemetryMonitor
             bool settingsChanged=changedFiles.Contains("server.json")&&DecodeSettingsKey(Config)!=DecodeSettingsKey(incoming.Config);
             change.DecoderChanged=change.CatalogChanged||settingsChanged;
             change.RulesChanged=changedFiles.Contains("continuous-rules.json");
+            // A saved group only changes how sequence definitions are listed.
+            change.SequenceRuntimeChanged=changedFiles.Contains("sequences.json") &&
+                (sequenceStorageError!=incoming.sequenceStorageError || !CanonicalJson.Equivalent(
+                    SequenceRuntimeSettings(sequenceConfiguration),SequenceRuntimeSettings(incoming.sequenceConfiguration)));
             if(settingsChanged)
             {
                 foreach(var field in Catalog)change.ChangedParameters.Add(field.Id,field);
@@ -120,7 +124,7 @@ namespace TelemetryMonitor
                     configurationPacketSince[id]=now;
                     foreach(string key in sequences.Keys.Where(k=>k.EndsWith(":"+id,StringComparison.Ordinal)).ToArray())sequences.Remove(key);
                 }
-                bool rebind=change.DecoderChanged||changedFiles.Any(f=>new[]{"tc-bindings.json","sequences.json","observed-commands.json","command-send.json","send-monitor.json"}.Contains(f));
+                bool rebind=change.DecoderChanged||change.SequenceRuntimeChanged||changedFiles.Any(f=>new[]{"tc-bindings.json","observed-commands.json","command-send.json","send-monitor.json"}.Contains(f));
                 if(rebind)foreach(var context in sequenceTasks.Values.Where(c=>c.Running).ToArray())InSequence(context,()=>
                 {
                     try{RebindRunningSequence(sendRevision);}

@@ -34,7 +34,9 @@ namespace TelemetryMonitor
                     SequenceImportPreview preview;
                     if(!sequencePreviews.TryGetValue(Text(body,"token"),out preview) || preview.Username!=session.Username || (DateTime.UtcNow-preview.Created).TotalMinutes>10)throw new ArgumentException("编辑预览已过期，请重新选择已保存序列");
                     if(String.IsNullOrEmpty(preview.EditId) || preview.Definitions.Count!=1 || preview.Definitions[0].Id!=preview.EditId)throw new ArgumentException("请选择已入库序列进行修改");
-                    monitor.SaveSequenceEdits(preview.Definitions[0],preview.Revision);
+                    object group;
+                    if(body.TryGetValue("group",out group) && !(group is string))throw new ArgumentException("序列分组名称无效");
+                    monitor.SaveSequenceEdits(preview.Definitions[0],preview.Revision,(string)group);
                     sequencePreviews.Remove(preview.Token);Json(ctx.Response,monitor.SequenceConfigurationInfo(),200);
                 }
                 return true;
@@ -44,7 +46,7 @@ namespace TelemetryMonitor
     }
     public sealed partial class Monitor
     {
-        internal void SaveSequenceEdits(SequenceDefinition edited,string revision)
+        internal void SaveSequenceEdits(SequenceDefinition edited,string revision,string group)
         {
             lock(Gate)
             {
@@ -56,6 +58,7 @@ namespace TelemetryMonitor
                 if(copy.Sequences.Any(d=>d.Id!=definition.Id && d.Mode==definition.Mode && d.Name==name))throw new ArgumentException("同模式已存在相同名称的序列："+name);
                 // Keep the saved identity, sequence code, mode, source and workbook provenance.
                 definition.Name=name;definition.Rows=SequenceClone(edited.Rows);definition.NextRowNumber=Math.Max(definition.NextRowNumber,edited.NextRowNumber);
+                if(group!=null)definition.Group=CheckSequenceGroup(group);
                 CheckSequenceConfig(copy);
                 foreach(var item in copy.Sequences)
                 {
