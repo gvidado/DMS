@@ -36,7 +36,7 @@
     "src/DshPluginApi.cs": "555b747b2f1790f6ddf2d6e561345cfcb16250bef4baa2c84490049d37677c03",
     "src/EventStamp.cs": "66a9e0c7f904cfa8f2f65bdccfd79d95c5174d8f9f8280790a2fb38dbea3966a",
     "src/FlightSequenceApi.cs": "3b586e1bdd83e87a3a67f36526c395d2fa0c8a62a0ce024a21b06d9504a785e9",
-    "src/FlightSequenceConversion.cs": "5611172c840a5d3ccc2f91b73a1586b3b277ac30cb63b744e250337c95619feb",
+    "src/FlightSequenceConversion.cs": "7b3e170cb910710269aea92bb4ac3f0ae06f5ee1c15af806b0cc6ae8e5ee3b05",
     "src/FlightSequenceWorkbook.cs": "2d3cc24d10de647d5da9d8a1887a7161adc9fcc069c44567ddbe6dd91f0bd8b2",
     "src/HotConfigurationRuntime.cs": "75c3c26ee2aff3e285b7d3a5e59e11f0262113042e188223a27a03df6062f7d0",
     "src/HotConfigurationTransport.cs": "fa63096c09db5dfac88d3c26a766d6fbda60187d5da9ca021b5d786a765aed90",
@@ -116,7 +116,7 @@
     "web/continuous.js": "e7623d4dd60505870caa740b8685ed6a0b698f45d55576ecb7cf79caefc39adf",
     "web/decoder.js": "ab126c96038f9314ddd583e2dc086cb171bc97a7d51de3442a99df0fb16172ce",
     "web/display-size.js": "127466c467212e876cb52f6144af5ae2a53352b3c3d3f920e32d702cdd77b2ff",
-    "web/flight-sequence.js": "7597f705776c746c571b7b65fd1972418ff884a2975c906f6801fde10d573581",
+    "web/flight-sequence.js": "6ac20775a1f63651c1032ff10ffdc607081e015a7522fb4b3e20101fe4b6bacd",
     "web/forms.css": "06e441b6c305485df399903b7383c13c89774f2624fb7a09df07bb0916ffbb37",
     "web/index.html": "4e0968f9b586c7f08af44d73d733b709de05e98a36a5f885866fd746694f1d3d",
     "web/judgment-archives.js": "472484c0fe32d0dea22021cee1afb30ad7e079351d3347d28451bc5f89408bfe",
@@ -198,8 +198,8 @@
     "tools/display_size_browser.mjs": "c986422f36a7b6a37ba3264988bf4c11f34466300fee863ea3188ed7b9fb8311",
     "tools/excel_cancel_browser.mjs": "62f422a3867f261418a5480019ed56f2199c2eeed96242782d303e72fddfad75",
     "tools/feature_tabs_test.mjs": "fb72cc8ccbc6f62ffade0d5587b3498b9ef3adfb91ce19591c8e724e2d46370f",
-    "tools/flight_sequence_browser.mjs": "cf2d5dd8d2d77fe44adcb63578dbb102aa055b97239d058e4d91f7114b246949",
-    "tools/flight_sequence_test.py": "88bb934fa842645e3d8d5dfb046c755147470c55385002257472d6d8441d4ccc",
+    "tools/flight_sequence_browser.mjs": "98d7d6ee15a1c914341a263ae24c3061856d0e67ca4968f2c9de9e4def8b3119",
+    "tools/flight_sequence_test.py": "860a62fb26e86b88ea5626f901d54a5f53eade19e310d1b00512ec5d105fc073",
     "tools/github_README.template.md": "4a4fa1018e6f5f151fb4212aeda94d404e022d5e4ea7f4dccd6007a393f86d9e",
     "tools/github_sync.py": "24d009ebd56b9c45281e1bef50e330d18d6fc93ff8b2521a7dabe5b4397f8733",
     "tools/import_parameters.py": "def2384f8c9a667daaaf65dbdbc5e98ce31437fcfdebd76df603f6902c7cfccc",
@@ -353,7 +353,7 @@
     "说明/V0.10.33更新说明.md": "03a15e138c6d34de64b531b8b4e4e0b701438ec9fa014bc913980f0f90a067e5",
     "说明/V0.10.34更新说明.md": "3852b64c716f755d31b1fd0d0eaf0661df3aa5abd58c8a5f3e22933b5a679c38",
     "说明/V0.10.35更新说明.md": "a155cea64d588701d57ec779e745c89f617d5b72611468734ff6de73dabda81f",
-    "说明/V0.10.36更新说明.md": "bb473e997b1f9bc2d8d6bcc8624d37b351deb52d30df5912e718ecd821168752",
+    "说明/V0.10.36更新说明.md": "7a1c25319f0596bbd31213282d0ab23e62ed55e2b1bd460227a7f9c4c0e1ef16",
     "说明/V0.10.3更新说明.md": "4c0a819adf8e9aaf3d24d92f6719c4a437d86f9acede68df52fcd1773a19dbb3",
     "说明/V0.10.3验证与查询性能说明.md": "fa8482264464e53cdfaa4880370e2cb4e36963e63475b319c5a47c9f0306a316",
     "说明/V0.10.4更新说明.md": "87685c157c1e3f28cb000f65a21dd90cd561d9e6f0116f1decfd280a260f66eb",
@@ -366,6 +366,6 @@
     "docs/数据判读系统_V0.10.26_使用说明书.docx": "e767948ee86cba9ebe306f95f97952b9c95e9d62801bf64fa02e479c4bc0b7c9",
     "docs/screenshots/parameters.png": "f47cf2fd5e285b567a1a3411b119949c0dfae7219080e39dda4dce44efa941c4",
     "docs/screenshots/sequence.png": "74246e3f5c8424eb1ebb6d25653016c8d82a11b42f72a1fd339be1fe13358c58",
-    "release/current.json": "4560067841df9d485215a0f7af0635cc05ad13d843ee03b8673784d248b3063e"
+    "release/current.json": "184ad2cd7092509edcd0dbb558b04af1456476271cc653065901d7fcb2f5359f"
   }
 }

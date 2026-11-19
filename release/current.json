@@ -22,6 +22,21 @@
       "name": "SHA256SUMS.txt",
       "size": 297,
       "sha256": "faa3cea50f43064c0cd079a00003ef0a21cb5a1286870e9c0002195f8ce0c836"
+    },
+    {
+      "name": "DMS-v0.10.36-timeout1500-windows-offline.zip",
+      "size": 632650,
+      "sha256": "6b3438963ab6978776722aa71400f147a88e4d46204a638673a0836426f9de9a"
+    },
+    {
+      "name": "DMS-v0.10.36-timeout1500-windows-upgrade.zip",
+      "size": 628254,
+      "sha256": "33a7fd2fffa791461ce58aec0182b03474cef2d7d3595ac0c2a120f751aaa99c"
+    },
+    {
+      "name": "SHA256SUMS-timeout1500.txt",
+      "size": 222,
+      "sha256": "cff83069a26aa594cae733472e49cec9a712c5eb90a159f2d964644662e169e4"
     }
   ]
 }

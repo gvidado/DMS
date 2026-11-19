@@ -35,6 +35,7 @@ try {
   assert.equal(await page.getByRole('textbox',{name:'第3行范围值'}).inputValue(),'0');
   await dialog.getByRole('button',{name:'重新检测当前工作表'}).click();
   await page.getByText('TMB.A0 == 9.8',{exact:true}).waitFor();
+  assert.match(await dialog.locator('tbody tr').nth(1).innerText(),/超时 1500 秒/);
   const download=page.waitForEvent('download');
   await page.getByRole('button',{name:'导出序列判读 Excel'}).click();
   assert.equal((await download).suggestedFilename(),'飞行测试_序列判读.xlsx');

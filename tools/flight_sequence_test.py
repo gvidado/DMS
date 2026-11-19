@@ -102,7 +102,8 @@ def check_conversion(client, source):
     assert r5['Condition'] == 'TMB.A0 == 0x020202'
     assert r6['Condition'] == 'abs(TME.A0 - (-90)) < 5'
     assert r7['Input']['Phase'] == '' and r7['Condition'] == 'TME.A2 < -1'
-    assert r8['Input']['Keyword'] == 'TEXT'
+    assert r8['Input']['Keyword'] == 'TEXT' and r8['Timeout'] == ''
+    assert r2['Timeout'] == r4['Timeout'] == r5['Timeout'] == second['Rows'][0]['Timeout'] == '1500'
     assert first['Errors'][0].startswith('第3行')
     post(client, prefix + 'export', {'token': token}, status=400)
 
@@ -112,18 +113,20 @@ def check_conversion(client, source):
     assert '范围值' in recheck(Parameter='TMB.A0', Range='-1')['Rows'][1]['Errors']
     checked = recheck(Parameter='ＴＭＢ。Ａ０', Range='0')
     assert not checked['Errors'], checked['Errors']
-    assert checked['Rows'][1]['Condition'] == 'TMB.A0 == 9.8'
+    assert checked['Rows'][1]['Condition'] == 'TMB.A0 == 9.8' and checked['Rows'][1]['Timeout'] == '1500'
     export = post(client, prefix + 'export', {'token': token})
     with zipfile.ZipFile(io.BytesIO(export)) as saved:
         xml = ET.fromstring(saved.read('xl/worksheets/sheet1.xml'))
         header, first_step = xml.findall(f'.//{NS}row')[:2]
         assert [c.text for c in header.iter(NS + 't')] == HEADERS[:2] + ['指令或参数'] + HEADERS[3:]
-        columns = {'B2': '第一阶段：组合动作（测试量0）', 'D2': 'abs(TME.A0 - 9.8) < 1'}
+        columns = {'B2': '第一阶段：组合动作（测试量0）', 'D2': 'abs(TME.A0 - 9.8) < 1', 'G2': '1500'}
         assert all((c.findtext(f'{NS}is/{NS}t') or '') == columns.get(c.attrib['r'], '') for c in first_step)
     round_trip = post(client, '/api/sequence/preview?filename=converted.xlsx&mode=judge&timeout=30',
                       export, 'application/octet-stream')
     assert len(round_trip['definitions']) == 2
     assert all(not definition['errors'] for definition in round_trip['definitions']), round_trip
+    rows = [row for item in round_trip['definitions'] for row in item['definition']['Rows']]
+    assert all(row['Timeout'] == ('1500' if row['Condition'] else '') for row in rows)
     assert client.call('/api/sequence/config')['revision'] == before and source.read_bytes() == data
     client.call(prefix + 'cancel', {'token': token})
     post(client, prefix + 'export', {'token': token}, status=400)

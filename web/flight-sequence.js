@@ -174,6 +174,7 @@ window.FlightSequenceUI=(()=>{
       const result=tr.insertCell();
       result.append(element('div','',row.Description));
       if(row.Condition) result.append(element('code','sequence-flight-condition',row.Condition));
+      if(row.Timeout) result.append(element('div','muted small-text','超时 '+row.Timeout+' 秒'));
       for(const message of Object.values(row.Errors)) result.append(element('div','sequence-flight-row-error',message));
       fragment.append(tr);
     }

@@ -16,6 +16,7 @@ namespace TelemetryMonitor
 
     public sealed partial class Monitor
     {
+        private const string DefaultFlightTimeout = "1500";
         private static readonly Regex FlightComparator=new Regex(
             @"^(大于或等于|小于或等于|大于等于|小于等于|大于|小于|≥|≤|>=|<=|>|<)\s*(.+)$",RegexOptions.CultureInvariant);
         private static readonly Regex FlightHex=new Regex(@"^-?0[xX][0-9a-fA-F]+$",RegexOptions.CultureInvariant);
@@ -23,7 +24,7 @@ namespace TelemetryMonitor
         internal sealed class FlightRowResult
         {
             public FlightSequenceRow Input;
-            public string ParameterName, Description, Condition;
+            public string ParameterName, Description, Condition, Timeout;
             public string[] Candidates;
             public Dictionary<string,string> Errors;
         }
@@ -50,9 +51,11 @@ namespace TelemetryMonitor
                 foreach(var row in sheet.Rows)
                 {
                     var converted=ConvertFlightRow(row,references,codes);
+                    converted.Timeout = converted.Condition.Length > 0 && !String.Equals(row.Keyword, "TEXT", StringComparison.OrdinalIgnoreCase)
+                        ? DefaultFlightTimeout : "";
                     result.Rows.Add(converted);
                     definition.Rows.Add(new SequenceRow{Row=row.Row,Keyword=row.Keyword,Description=converted.Description,
-                        Condition=converted.Condition,CellErrors=converted.Errors});
+                        Condition=converted.Condition,Timeout=converted.Timeout,CellErrors=converted.Errors});
                 }
                 lock(Gate)
                     CompileSequence(definition,sequenceConfiguration.DefaultTimeoutSeconds,out result.Errors,out result.Warnings);
