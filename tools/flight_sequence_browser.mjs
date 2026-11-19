@@ -1,0 +1,49 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+
+const settings=JSON.parse(await readFile(process.argv[2],'utf8'));
+const require=createRequire(import.meta.url);
+const modules=process.env.DMS_BROWSER_NODE_MODULES;
+const {chromium}=require(modules?join(modules,'playwright'):'playwright');
+const browser=await chromium.launch({channel:'msedge',headless:true});
+try {
+  const page=await browser.newPage({viewport:{width:1440,height:960}});
+  const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(settings.base+'/?section=sequences&view=sequence-config');
+  await page.locator('#login-username').fill('flightqa');
+  await page.locator('#login-password').fill(settings.password);
+  await page.locator('#login-submit').click();
+  await page.locator('#flight-sequence-open').click();
+  const file=page.locator('#flight-sequence-file');
+  await file.setInputFiles(settings.source);
+  await page.getByRole('button',{name:'读取并预览'}).click();
+  await page.getByText('参考值为具体数值时，范围值不能为空。',{exact:true}).waitFor();
+  const dialog=page.getByRole('dialog',{name:'飞行判读表转换'});
+  assert.equal(await dialog.locator('tbody tr').count(),7);
+  assert.match(await dialog.locator('tbody tr').nth(1).innerText(),/第一阶段/);
+  assert(await page.getByRole('button',{name:'导出序列判读 Excel'}).isDisabled());
+  await dialog.screenshot({path:join(settings.out,'flight-judgment-preview.png')});
+  await page.getByLabel('第3行参数代号').fill('TMB.A0');
+  await page.getByRole('textbox',{name:'第3行范围值'}).fill('0');
+  const sheet=page.locator('#flight-sequence-sheet');
+  await sheet.selectOption({label:'复核'});
+  assert(await page.getByRole('button',{name:'导出序列判读 Excel'}).isDisabled());
+  await sheet.selectOption({label:'飞行试验'});
+  assert.equal(await page.getByRole('textbox',{name:'第3行范围值'}).inputValue(),'0');
+  await dialog.getByRole('button',{name:'重新检测当前工作表'}).click();
+  await page.getByText('TMB.A0 == 9.8',{exact:true}).waitFor();
+  const download=page.waitForEvent('download');
+  await page.getByRole('button',{name:'导出序列判读 Excel'}).click();
+  assert.equal((await download).suggestedFilename(),'飞行测试_序列判读.xlsx');
+  await dialog.getByRole('button',{name:'清空',exact:true}).click();
+  assert.equal(await file.inputValue(),'');
+  await dialog.getByRole('button',{name:'取消',exact:true}).click();
+  assert(!(await dialog.isVisible()));
+  assert.deepEqual(errors,[]);
+  console.log('PASS browser upload, editable missing range, sheet draft, recheck, download, clear and cancel');
+} finally {
+  await browser.close();
+}

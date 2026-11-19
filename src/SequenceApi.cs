@@ -47,6 +47,7 @@ namespace TelemetryMonitor
         private bool HandleSequences(HttpListenerContext ctx,Session session)
         {
             string path=ctx.Request.Url.AbsolutePath,method=ctx.Request.HttpMethod;if(!path.StartsWith("/api/sequence/",StringComparison.Ordinal))return false;
+            if(HandleFlightSequences(ctx,session,path,method))return true;
             if(HandleSequenceEdits(ctx,session,path,method))return true;
             if(path=="/api/sequence/config" && method=="GET"){Json(ctx.Response,monitor.SequenceConfigurationInfo(),200);return true;}
             if(path=="/api/sequence/diagnostic" && method=="GET")

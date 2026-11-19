@@ -43,6 +43,7 @@ function signedOut(message = '') {
   window.SendMonitorUI?.reset();
   window.CommandSendUI?.reset();
   window.SequenceUI?.reset();
+  window.FlightSequenceUI?.reset();
   window.ContinuousUI?.reset();
   window.NamespaceMigrationUI?.reset();
   if (app.stream) app.stream.close(); app.stream = null; app.user = null; app.connected = false;

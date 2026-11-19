@@ -25,25 +25,47 @@ namespace TelemetryMonitor
                 return new[]{1,2,3,4,5,6,7};
             return null;
         }
+        private static IEnumerable<KeyValuePair<string,XDocument>> SequenceSheets(ZipArchive zip)
+        {
+            var relations=Xml(zip,"xl/_rels/workbook.xml.rels").Root.Elements().ToDictionary(e=>(string)e.Attribute("Id"));
+            var sheets=Xml(zip,"xl/workbook.xml").Descendants(S+"sheet").ToArray();
+            if(sheets.Length>64)throw new ArgumentException("序列工作表超过64张");
+            foreach(var sheet in sheets)
+            {
+                string name=(string)sheet.Attribute("name"),rid=(string)sheet.Attribute(R+"id");
+                XElement relation;
+                if(String.IsNullOrWhiteSpace(name)||rid==null||!relations.TryGetValue(rid,out relation)||(string)relation.Attribute("TargetMode")=="External")
+                    throw new ArgumentException("工作表关联无效");
+                var uri=new Uri(new Uri("http://xlsx.local/xl/workbook.xml"),(string)relation.Attribute("Target"));
+                if(uri.Host!="xlsx.local" || !uri.AbsolutePath.StartsWith("/xl/",StringComparison.Ordinal))
+                    throw new ArgumentException("工作表路径无效");
+                yield return new KeyValuePair<string,XDocument>(name,Xml(zip,uri.AbsolutePath.TrimStart('/')));
+            }
+        }
+
+        private static List<string> SequenceSharedStrings(ZipArchive zip)
+        {
+            if(zip.Entries.Count>3000 || zip.Entries.Sum(e=>e.Length)>64L*1024*1024)
+                throw new ArgumentException("序列Excel解压体积过大");
+            return zip.GetEntry("xl/sharedStrings.xml")==null ? new List<string>() :
+                Xml(zip,"xl/sharedStrings.xml").Descendants(S+"si")
+                    .Select(item=>String.Concat(item.Descendants(S+"t").Select(t=>t.Value))).ToList();
+        }
+
         public static List<SequenceDefinition> ReadSequences(byte[] bytes,string filename,string mode)
         {
             var result=new List<SequenceDefinition>();
             using(var memory=new MemoryStream(bytes))using(var zip=new ZipArchive(memory,ZipArchiveMode.Read))
             {
-                if(zip.Entries.Count>3000 || zip.Entries.Sum(e=>e.Length)>64L*1024*1024)throw new ArgumentException("序列Excel解压体积过大");
-                var shared=new List<string>();if(zip.GetEntry("xl/sharedStrings.xml")!=null)foreach(var item in Xml(zip,"xl/sharedStrings.xml").Descendants(S+"si"))shared.Add(String.Concat(item.Descendants(S+"t").Select(t=>t.Value)));
-                var rel=Xml(zip,"xl/_rels/workbook.xml.rels").Root.Elements().ToDictionary(e=>(string)e.Attribute("Id"));
-                var sheets=Xml(zip,"xl/workbook.xml").Descendants(S+"sheet").ToArray();if(sheets.Length>64)throw new ArgumentException("序列工作表超过64张");
-                foreach(var sheet in sheets)
+                var shared=SequenceSharedStrings(zip);
+                foreach(var sheet in SequenceSheets(zip))
                 {
-                    string name=(string)sheet.Attribute("name"),rid=(string)sheet.Attribute(R+"id");XElement relation;
-                    if(rid==null || !rel.TryGetValue(rid,out relation) || (string)relation.Attribute("TargetMode")=="External")throw new ArgumentException("工作表关联无效");
-                    var uri=new Uri(new Uri("http://xlsx.local/xl/workbook.xml"),(string)relation.Attribute("Target"));if(uri.Host!="xlsx.local" || !uri.AbsolutePath.StartsWith("/xl/",StringComparison.Ordinal))throw new ArgumentException("工作表路径无效");
+                    string name=sheet.Key;
                     var definition=new SequenceDefinition{Id=Guid.NewGuid().ToString("N"),Name=Path.GetFileNameWithoutExtension(filename)+(name.Trim()=="默认分段"?"":" / "+name),Filename=filename,Sheet=name,Mode=mode};
                     bool header=false;int count=0;int[] sourceColumns=null;
                     var keys=new[]{"Keyword","Description","Command","Condition","Mark","Expected","Timeout"};
                     var sourceFields=new Dictionary<int,string>();
-                    foreach(var row in Xml(zip,uri.AbsolutePath.TrimStart('/')).Descendants(S+"row"))
+                    foreach(var row in sheet.Value.Descendants(S+"row"))
                     {
                         if(++count>10000)throw new ArgumentException("单张序列表超过10000行");int rowNumber;if(!Int32.TryParse((string)row.Attribute("r"),out rowNumber))rowNumber=count;
                         var cellErrors=new Dictionary<string,string>();

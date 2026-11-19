@@ -7,5 +7,28 @@
 .sequence-launch-group{display:inline-flex;align-items:center;gap:8px;max-width:100%}#sequence-launch-group{min-width:8rem;max-width:16rem}
 
 
+
+.sequence-flight-dialog{width:min(1320px,96vw);max-width:96vw;max-height:94vh;padding:0;overflow:hidden}
+.sequence-flight-dialog[open]{display:flex;flex-direction:column}
+.sequence-flight-body{min-height:0;overflow:auto;display:grid;gap:12px}
+.sequence-flight-body .form-error{margin:0;white-space:pre-wrap}
+.sequence-flight-tools{justify-content:space-between;margin-bottom:10px}
+.sequence-flight-tools label{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.sequence-flight-pages{margin-left:auto}
+.sequence-flight-scroll{min-height:0;max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:7px}
+.sequence-flight-table{min-width:990px}
+.sequence-flight-table th{position:sticky;top:0;z-index:1}
+.sequence-flight-table th,.sequence-flight-table td{padding:8px 10px;vertical-align:top}
+.sequence-flight-table th:nth-child(5){min-width:152px}
+.sequence-flight-table th:nth-child(8){min-width:260px}
+.sequence-flight-input{width:100%;min-width:80px}
+.sequence-flight-input[aria-invalid=true]{border-color:var(--red);background:#fff5f5}
+.sequence-flight-condition{display:block;margin-top:2px;white-space:normal;overflow-wrap:anywhere}
+.sequence-flight-row-error{margin-top:4px;color:var(--red);font-size:12px}
+.flight-sequence-edited td:last-child{opacity:.55}
+#flight-sequence-checks{margin-bottom:10px}
+#flight-sequence-checks ul{max-height:12vh;overflow:auto;margin:6px 0}
+@media(max-width:700px){.sequence-flight-scroll{max-height:47vh}.sequence-flight-pages{margin-left:0}}
+
 .sequence-start-preview-dialog{max-height:94vh;overflow:hidden;padding:0}.sequence-start-preview-dialog[open]{display:flex;flex-direction:column}.sequence-start-preview-dialog>.dialog-heading{flex:none}.sequence-start-preview-dialog>form{min-height:0;overflow:auto}.sequence-start-preview-dialog>form>.import-action-line:last-child{position:sticky;bottom:0;background:#fff;border-top:1px solid #e7edf4;padding:12px 0;z-index:1}
 
