@@ -2,9 +2,9 @@
 
 面向分系统测试与半实物仿真的离线数据接收、遥测解码、自动判读和序列任务系统。
 
-**当前版本：V0.10.33** · Windows 10 · 浏览器内网访问 · 无需数据库
+**当前版本：V0.10.34** · Windows 10 · 浏览器内网访问 · 无需数据库
 
-[下载最新版本](https://github.com/gvidado/DMS/releases/latest) · [版本记录](CHANGELOG.md) · [使用说明书](https://github.com/gvidado/DMS/releases/download/v0.10.33/DMS-v0.10.26-user-manual.docx) · [问题反馈](https://github.com/gvidado/DMS/issues)
+[下载最新版本](https://github.com/gvidado/DMS/releases/latest) · [版本记录](CHANGELOG.md) · [使用说明书](https://github.com/gvidado/DMS/releases/download/v0.10.34/DMS-v0.10.26-user-manual.docx) · [问题反馈](https://github.com/gvidado/DMS/issues)
 
 ## 系统解决什么问题
 
@@ -75,8 +75,8 @@ EndResultRegion
 
 | 文件 | 用途 |
 | --- | --- |
-| `DMS-v0.10.33-windows-offline.zip` | 新部署，内含空配置和默认监听设置 |
-| `DMS-v0.10.33-windows-upgrade.zip` | 更新现有部署，保留现场config、data和logs |
+| `DMS-v0.10.34-windows-offline.zip` | 新部署，内含空配置和默认监听设置 |
+| `DMS-v0.10.34-windows-upgrade.zip` | 更新现有部署，保留现场config、data和logs |
 | `DMS-v0.10.26-user-manual.docx` | 完整使用说明，适用V0.10.26；后续变化见对应版本说明 |
 | `SHA256SUMS.txt` | 发布附件的SHA-256校验值 |
 

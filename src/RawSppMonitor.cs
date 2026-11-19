@@ -18,6 +18,7 @@ namespace TelemetryMonitor
     public sealed partial class Monitor
     {
         internal const int RawSppCapacity=200;
+        private const int RawSppPreviewBytes=24;
         private readonly Dictionary<string,Queue<RawSppRecord>> rawSppBuffers=new Dictionary<string,Queue<RawSppRecord>>();
         private readonly LinkedList<RawSppRecord> rawSppOrder=new LinkedList<RawSppRecord>();
         private readonly Dictionary<long,RawSppRecord> rawSppById=new Dictionary<long,RawSppRecord>();
@@ -96,7 +97,8 @@ namespace TelemetryMonitor
         private static object RawSppSummary(RawSppRecord r)
         {return new{id=r.Id,packetId=r.PacketId,packet=r.PacketName,outerSourceId=r.OuterSourceId,apid=r.Apid,sequence=r.Sequence,time=BeijingTime.Format(r.Time,"yyyy-MM-dd HH:mm:ss.fff"),
             source=r.Source,mode=r.Mode,captureFrame=r.CaptureFrame,udpLength=r.Bytes.Length,sppLength=r.Bytes.Length-r.Offset,declaredLength=r.DeclaredLength,
-            status=r.Valid?"通过":"异常",reason=r.Reason,checksum=r.Checksum,hexPreview=BitConverter.ToString(r.Bytes,r.Offset,Math.Min(24,r.Bytes.Length-r.Offset)).Replace('-', ' ')};}
+            status=r.Valid?"通过":"异常",reason=r.Reason,checksum=r.Checksum,
+            hexPreview=BitConverter.ToString(r.Bytes,0,Math.Min(RawSppPreviewBytes,r.Bytes.Length)).Replace('-', ' '),hexPreviewTruncated=r.Bytes.Length>RawSppPreviewBytes};}
         public object RawSppList(string packetId,int page)
         {
             long revision;
@@ -133,7 +135,7 @@ namespace TelemetryMonitor
             lock(Gate) rawSppById.TryGetValue(id,out record);
             if(record==null)throw new ArgumentException("该原包已清除或超出所属SPP包的最近200条");
             return new{record=RawSppSummary(record),sppHex=BitConverter.ToString(record.Bytes,record.Offset).Replace('-', ' '),udpHex=BitConverter.ToString(record.Bytes).Replace('-', ' '),
-                note="保留从SPP起点到UDP末尾的全部实际字节，包含包头和校验；长度异常时不补齐或裁剪。完整UDP另含六字节外层头。重复帧与校验异常包同样留存；原包监测本身不执行参数解码。"};
+                note=record.Offset==6?"完整UDP载荷包含前6字节外层头和后续SPP原文。":"SPP在UDP载荷中的起始偏移为"+record.Offset+"字节。" };
         }
         public void ClearRawSpp(string packetId)
         {

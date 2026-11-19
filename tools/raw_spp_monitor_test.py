@@ -50,6 +50,13 @@ def main():
             check(True,'raw lists, source detail, export and mutation require authentication/CSRF')
             c.call('/api/control',dict(action='start'));first=raw(0x0802,1);send(first);send(raw(0x0202,1));wait(lambda:rows()['total']==2,'two raw-only packets')
             r=rows('raw-a')['records'][0];d=detail(r['id']);check(bytes.fromhex(d['sppHex'])==first[6:] and bytes.fromhex(d['udpHex'])==first,'SPP and complete UDP bytes are retained exactly without decoding')
+            check(bytes.fromhex(r['hexPreview'])==first[:24] and r['hexPreviewTruncated'],
+                  'raw packet preview begins with the six-byte envelope and marks truncation')
+            if len(sys.argv)>3:
+                output=subprocess.run([sys.argv[2],str(ROOT/'tools/raw_spp_preview_browser.mjs'),sys.argv[3]],
+                                      input=json.dumps(dict(base=c.base,password=password,udp=first.hex())),
+                                      capture_output=True,encoding='utf-8',timeout=45,creationflags=subprocess.CREATE_NO_WINDOW)
+                check(output.returncode==0 and 'PASS' in output.stdout, output.stdout.strip() or output.stderr)
             check(state()['accepted']==0 and state()['invalid']==0 and state()['rawSppRetained']==2 and not state()['rows'],'raw-only traffic does not contaminate telemetry values or decoder rejection counters')
             send(first);wait(lambda:rows('raw-a')['total']==2,'raw duplicate retained');check(state()['duplicates']==0,'duplicate raw frames are retained independently of decoder duplicate filtering')
             bad=bytearray(raw(0x0802,2));bad[-1]^=1;send(bad);wait(lambda:rows('raw-a')['total']==3,'bad checksum retained');r=rows('raw-a')['records'][0]
