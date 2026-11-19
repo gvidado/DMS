@@ -17,6 +17,10 @@ def main():
         for index,mode in enumerate(['judge','execute']):
             rows=[dict(Row=i,Keyword='TEXT',Description='预览步骤'+str(i),Expected='F:10000' if i==53 else '0') for i in range(2,66)]
             rows[0]['Mark']='T0'
+            if mode=='execute':
+                rows[0]['Expected']='0.30'
+                rows[1]['Expected']='T0:0.10'
+                rows[2]['Expected']=''
             definitions.append(dict(Id=str(index+1)*32,Code=('XLP' if index==0 else 'XLZ')+'0001',Name=('判读' if index==0 else '执行')+'预览演示',Group='判读分组' if index==0 else '执行分组',Mode=mode,SourceIP='127.0.0.1',Rows=rows))
         save('sequences.json',dict(SchemaVersion=1,Revision='preview-fixture',DefaultTimeoutSeconds=30,Sequences=definitions))
         port=free_port();client=Client(port);password=secrets.token_urlsafe(20)

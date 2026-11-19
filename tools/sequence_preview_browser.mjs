@@ -47,6 +47,18 @@ try{
  await page.locator('#sequence-launch-mode').selectOption('execute');await page.waitForFunction(()=>document.querySelector('#sequence-run-name').value==='执行预览演示');
  assert.deepEqual(await page.locator('#sequence-launch-group option').allTextContents(),['全部分组','执行分组']);
  await page.locator('#sequence-start').click();await page.waitForFunction(()=>document.querySelector('#sequence-start-preview-page').textContent.includes('共64行'));assert.equal(await dialog.locator('input').count(),0);await page.locator('#sequence-start-cancel').click();checks.push('execution and judgment use the same clean preview');
+ await page.locator('#sequence-start').click();
+ await page.locator('#sequence-start-confirm').click();
+ await page.waitForFunction(()=>document.querySelector('#sequence-progress').textContent.includes('第53行'));
+ const timingCell=row=>page.locator('#sequence-run-rows tr[data-sequence-row="'+row+'"] td').nth(8);
+ assert.match(await timingCell(53).textContent(),/^计划 F:10000$/m);
+ await page.locator('#sequence-run-prev').click();
+ await timingCell(2).waitFor({state:'visible'});
+ assert.match(await timingCell(2).textContent(),/^计划 0\.30$/m);
+ assert.match(await timingCell(3).textContent(),/^计划 T0:0\.10$/m);
+ assert.match(await timingCell(3).textContent(),/^开始 [\d.]+\s*s$/m);
+ assert.match(await timingCell(4).textContent(),/^计划 —$/m);
+ checks.push('execution timing uses the configured expectation, including F, T0, a numeric value and blank');
  await page.evaluate(()=>api('control',{action:'stop'}));assert.deepEqual(errors,[]);
  await writeFile(join(input.out,'sequence-preview-report.json'),JSON.stringify({checks,pageErrors:errors},null,2));for(const check of checks)console.log('PASS '+check);
 }finally{await browser.close();}

@@ -521,7 +521,14 @@ window.SequenceUI=(()=>{
       summary(value.runtime);runPage=value.page;$('sequence-run-page').textContent=`${value.page} / ${value.pages} · ${value.total}项`;$('sequence-run-prev').disabled=value.page===1;$('sequence-run-next').disabled=value.page===value.pages;
       $('sequence-diagnostic-export').href='/api/sequence/diagnostic?'+new URLSearchParams({runId});
       const body=$('sequence-run-rows');body.replaceChildren();for(const r of value.rows){const tr=element('tr',sequenceRowClass(r));const input=r.input;tr.dataset.sequenceRow=input.Row;tr.dataset.status=r.status;
-        const values=Object.entries(r.values).map(([key,v])=>key+' = '+v).join('\n');const timing=[r.startedAt,r.finishedAt?'结束 '+r.finishedAt:''];if(value.definition?.Mode){timing.push('计划 '+seconds(r.planned),'开始 '+seconds(r.actual),'延迟 '+seconds(r.delay));}timing.push('船时 '+shipTimeText(r.shipTime));
+        const values=Object.entries(r.values).map(([key,v])=>key+' = '+v).join('\n');
+        const timing=[r.startedAt,r.finishedAt?'结束 '+r.finishedAt:''];
+        const mode=value.definition?.Mode;
+        if(mode){
+          const planned=mode==='execute'?(input.Expected?.trim()||'—'):seconds(r.planned);
+          timing.push('计划 '+planned,'开始 '+seconds(r.actual),'延迟 '+seconds(r.delay));
+        }
+        timing.push('船时 '+shipTimeText(r.shipTime));
         const timeout=['TEXT','PAUSE','PLUSE'].includes((input.Keyword||'').trim().toUpperCase())||r.timeout==null?'—':String(r.timeout)+'s'+((input.Timeout||'').trim()?'':'（默认）');
         for(const v of [input.Row,input.Keyword,input.Description,input.Command+(r.commandName?'\n'+r.commandName:''),input.Condition,timeout,r.status+(r.remaining==null?'':'\n剩余 '+seconds(r.remaining)),values||'—',timing.filter(Boolean).join('\n'),[resultReason(r.status,r.reason,input),r.evaluation?.count?'最近判读 '+r.evaluation.lastAt+' · '+r.evaluation.result+' · '+r.evaluation.count+'次':input.Condition&&r.actual!=null?'尚未进行参数判读':''].filter(Boolean).join('\n')])tr.append(td(v));body.append(tr);}
       if(!value.rows.length)empty(body,10,'请先在序列配置中导入并保存序列');
