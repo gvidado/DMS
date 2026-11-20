@@ -312,6 +312,15 @@ window.ParameterDisplayUI = (() => {
   });
   function setBusy(){for(const control of config.querySelectorAll('button,input,select'))control.disabled=busy;copyButton.disabled=busy||!currentBox();pasteButton.disabled=busy||!currentScreen()||!window.LayoutClipboard.has('parameter-box');arranger.sync();}
   $('pd-reload').addEventListener('click',async()=>{if(busy||(dirty&&!confirm('放弃本页未保存的修改，并重新载入？')))return;try{await load();toast('已载入保存的显示配置');}catch(e){$('pd-error').textContent=e.message;}});
+  function applyReadings(rows){
+    for(const row of rows)latestRows.set(row.id,row);
+    if(document.hidden)return;
+    const registry=app.view==='parameters'?cells:app.view==='parameter-displays'?editorCells:null;
+    if(!registry)return;
+    const changed=new Set(rows.map(row=>row.id));
+    for(const entries of registry.values())for(const entry of entries)
+      if(changed.has(entry.id)&&(!entry.tracked||entry.visible!==false))updateCell(entry);
+  }
   function render(){
     const rows=app.state?.rows;if(rows!==lastRows){lastRows=rows;latestRows=new Map((rows||[]).map(r=>[r.id,r]));}
     if(app.view==='parameters')renderMonitor();
@@ -325,5 +334,5 @@ window.ParameterDisplayUI = (() => {
   window.addEventListener('resize',scheduleViewportSize);
   window.addEventListener('beforeunload',event=>{rememberPosition(true);persistPositions();if(app.user&&dirty){event.preventDefault();event.returnValue='';}});
   window.addEventListener('pagehide',()=>{rememberPosition(true);persistPositions();});
-  return{load,render,activate,reset,rememberPosition};
+  return{load,render,applyReadings,activate,reset,rememberPosition};
 })();

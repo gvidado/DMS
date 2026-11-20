@@ -1,14 +1,18 @@
 'use strict';
 // Share one server event stream among same-origin browser tabs.
-const clients=new Map();let stream=null,latest=null,connected=false,session='';
+const clients=new Map();const updates=new Map();let stream=null,latest=null,connected=false,session='';
 function send(port,message){try{port.postMessage(message);}catch{clients.delete(port);}}
 function broadcast(message){for(const port of clients.keys())send(port,message);}
-function stop(){if(stream)stream.close();stream=null;latest=null;connected=false;}
+function stop(){if(stream)stream.close();stream=null;latest=null;updates.clear();connected=false;}
 function connect(){
   if(stream||!clients.size)return;
-  const source=new EventSource('/api/events');stream=source;
+  const source=new EventSource('/api/events?readings=1');stream=source;
   source.onopen=()=>{if(stream!==source)return;connected=true;broadcast({type:'connection',connected:true});};
-  source.onmessage=event=>{if(stream!==source)return;try{latest=JSON.parse(event.data);connected=true;broadcast({type:'state',state:latest});}catch{}};
+  source.onmessage=event=>{if(stream!==source)return;try{latest=JSON.parse(event.data);updates.clear();connected=true;broadcast({type:'state',state:latest});}catch{}};
+  source.addEventListener('readings',event=>{
+    if(stream!==source||!latest)return;
+    try{const rows=JSON.parse(event.data);for(const row of rows)updates.set(row.id,row);broadcast({type:'readings',rows});}catch{}
+  });
   source.onerror=()=>{if(stream!==source)return;connected=false;broadcast({type:'connection',connected:false});};
 }
 self.onconnect=event=>{
@@ -20,7 +24,7 @@ self.onconnect=event=>{
     const key=String(message.session||'');if(!key)return;
     if(session&&session!==key){stop();broadcast({type:'reauth'});}
     session=key;const added=!clients.has(port);clients.set(port,Date.now());
-    if(added||message.type==='subscribe'){send(port,{type:'connection',connected});if(latest)send(port,{type:'state',state:latest});}
+    if(added||message.type==='subscribe'){send(port,{type:'connection',connected});if(latest){send(port,{type:'state',state:latest});if(updates.size)send(port,{type:'readings',rows:Array.from(updates.values())});}}
     connect();
   };
   port.onmessageerror=()=>{clients.delete(port);if(!clients.size)stop();};

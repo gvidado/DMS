@@ -115,6 +115,7 @@ namespace TelemetryMonitor
 
     public sealed class Reading
     {
+        internal long DisplayRevision;
         public string PacketEventId="";
         public string Id;
         public string Value;

@@ -45,6 +45,25 @@ try{
  const size1=await page.locator('#pd-monitor-canvas .pd-box').first().boundingBox();await send(2,980);await until(()=>page.locator('#pd-monitor-canvas [data-parameter-id="test/A1"] .pd-value').textContent().then(t=>t==='9.8'));const size2=await page.locator('#pd-monitor-canvas .pd-box').first().boundingBox();check(size1.width===size2.width&&size1.height===size2.height,'actual UDP engineering values update without changing box size');
  check(/03\s?D4/i.test(await page.locator('#pd-monitor-canvas [data-parameter-id="test/A1"] .pd-hex').textContent()),'hex source remains enabled by default');
  await until(()=>page.locator('#pd-monitor-canvas [data-parameter-id="test/A1"] .status-tag').textContent().then(t=>t==='过期'));await send(3,979);await until(()=>page.locator('#pd-monitor-canvas [data-parameter-id="test/A1"] .status-tag').textContent().then(t=>t==='有效'));check(true,'stale quality recovers on fresh incoming telemetry');
+ const valueCell=page.locator('#pd-monitor-canvas [data-parameter-id="test/A1"] .pd-value').first();
+ await valueCell.evaluate(cell=>{
+   window.telemetryPaints=[];
+   new MutationObserver(()=>window.telemetryPaints.push({value:cell.textContent,at:Date.now()}))
+     .observe(cell,{childList:true,characterData:true,subtree:true});
+ });
+ const frames=18,period=160,startAt=performance.now(),sent=new Map();
+ for(let i=0;i<frames;i++){
+   await new Promise(r=>setTimeout(r,Math.max(0,startAt+i*period-performance.now())));
+   const value=1101+i;
+   sent.set(String(value/100),Date.now());
+   await send(4+i,value);
+ }
+ await until(()=>valueCell.textContent().then(t=>t==='11.18'),'last 160 ms UDP value');
+ const displayed=await page.evaluate(()=>window.telemetryPaints);
+ const delays=displayed.filter(p=>sent.has(p.value)).map(p=>p.at-sent.get(p.value)).sort((a,b)=>a-b);
+ const p95=delays[Math.ceil(delays.length*.95)-1];
+ console.log('160 MS LIVE DISPLAY',JSON.stringify({frames,displayed:delays.length,p95,max:delays.at(-1)}));
+ check(delays.length>=frames-1&&p95<150,'the browser follows consecutive 160 ms UDP frames');
  const clonePage=await context.newPage();clonePage.on('pageerror',e=>errors.push(e.message));await clonePage.goto(base+'/?section=data&view=parameters');await clonePage.locator('#workspace').waitFor({state:'visible'});await clonePage.locator('#pd-screen-tabs button').last().click();check(await page.locator('#pd-screen-tabs button.active').textContent()==='画面1','other pages may select a different screen without switching this page');
  await page.screenshot({path:join(root,'test-output','parameter-displays','monitor.png'),fullPage:true});
  await page.evaluate(()=>navigate('parameter-displays',true));await page.locator('#pd-edit-screen').selectOption(original.Screens[0].Id);await page.locator('#pd-screen-name').fill('本地草稿');await page.locator('#pd-screen-name').dispatchEvent('change');

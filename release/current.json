@@ -1,17 +1,17 @@
 {
-  "version": "0.10.36",
-  "tag": "v0.10.36",
+  "version": "0.10.37",
+  "tag": "v0.10.37",
   "manualVersion": "0.10.26",
   "assets": [
     {
-      "name": "DMS-v0.10.36-windows-offline.zip",
-      "size": 632393,
-      "sha256": "1784347c1f4029ef64c801d5334dee29775ce4aac96d44f6811ff5e8158fd717"
+      "name": "DMS-v0.10.37-windows-offline.zip",
+      "size": 632814,
+      "sha256": "f4b27707d5bf8e21033aa3ca24ebe236837f7b0477541cfe9dc84ef8213f798c"
     },
     {
-      "name": "DMS-v0.10.36-windows-upgrade.zip",
-      "size": 627996,
-      "sha256": "2ee2e2acab0dc73a0e3764b86c40f4e3f1826e0b73097332aeb5e59f8124d2ca"
+      "name": "DMS-v0.10.37-windows-upgrade.zip",
+      "size": 628417,
+      "sha256": "17b5a1849f3c183c964de5eb2ef025fc8e8c3a3ff529e52f475f7387daf8d70a"
     },
     {
       "name": "DMS-v0.10.26-user-manual.docx",
@@ -21,22 +21,7 @@
     {
       "name": "SHA256SUMS.txt",
       "size": 297,
-      "sha256": "faa3cea50f43064c0cd079a00003ef0a21cb5a1286870e9c0002195f8ce0c836"
-    },
-    {
-      "name": "DMS-v0.10.36-timeout1500-windows-offline.zip",
-      "size": 632650,
-      "sha256": "6b3438963ab6978776722aa71400f147a88e4d46204a638673a0836426f9de9a"
-    },
-    {
-      "name": "DMS-v0.10.36-timeout1500-windows-upgrade.zip",
-      "size": 628254,
-      "sha256": "33a7fd2fffa791461ce58aec0182b03474cef2d7d3595ac0c2a120f751aaa99c"
-    },
-    {
-      "name": "SHA256SUMS-timeout1500.txt",
-      "size": 222,
-      "sha256": "cff83069a26aa594cae733472e49cec9a712c5eb90a159f2d964644662e169e4"
+      "sha256": "234980e6998d79fb800d3fd1f2305e8e12c29a5ad11511b78a1e4dc57a904a0d"
     }
   ]
 }

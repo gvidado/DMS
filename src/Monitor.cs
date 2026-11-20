@@ -33,6 +33,7 @@ namespace TelemetryMonitor
         private object packetInfo;
         private long generation;
         private long noticeId;
+        private long liveReadingRevision;
         private readonly HashSet<string> recentRejectionMessages = new HashSet<string>(StringComparer.Ordinal);
         private double rejectionWindowEnd;
         public bool Listening { get; private set; }
@@ -405,9 +406,11 @@ namespace TelemetryMonitor
                 double observed = stamp.DataSeconds, dataTime = Demo ? replayCaptureMs / 1000 : observed;
                 string timeUtc = BeijingTime.Iso(now);
                 string packetEventId = Guid.NewGuid().ToString("N");
+                long displayRevision = fields.Length == 0 ? 0 : Interlocked.Increment(ref liveReadingRevision);
                 foreach (Parameter def in fields)
                 {
                     Reading reading = Protocol.Decode(data, p, def, cfg, now);
+                    reading.DisplayRevision = displayRevision;
                     Values[def.Id] = reading;
                     reading.SourceIP = ip; reading.SourcePort = sourcePort; reading.PacketEventId = packetEventId;
                     RecordEngineering(stream, reading, observed, dataTime, timeUtc);
@@ -469,7 +472,14 @@ namespace TelemetryMonitor
             internal DateTime ReceivedAt;
         }
 
-        public object Snapshot(List<string> selected)
+        internal sealed class LiveReadingCursor
+        {
+            internal long Revision, Generation;
+        }
+
+        public object Snapshot(List<string> selected) { return Snapshot(selected, null); }
+
+        internal object Snapshot(List<string> selected, LiveReadingCursor cursor)
         {
             var rows = new LiveSnapshotRow[selected.Count];
             object snapshot;
@@ -483,9 +493,12 @@ namespace TelemetryMonitor
                     string id = selected[i];
                     Reading v;
                     if (!Values.TryGetValue(id, out v)) rows[i] = new LiveSnapshotRow { id = id, value = "—", raw = "", hexSource = "", status = Demo || (NativeDecoder ? ReadyFor(id) : Config.MappingConfirmed) ? "待接收" : "待核实", time = "—" };
-                    else rows[i] = new LiveSnapshotRow { id = id, value = v.Value, raw = v.Raw, hexSource = v.HexSource,
-                        status = (!Listening && !Demo) ? "已停止" : DisplayReadingStatus(v,dataNow,now),
-                        ReceivedAt = v.Time, sequence = v.Sequence };
+                    else rows[i] = SnapshotReading(v, dataNow, now);
+                }
+                if (cursor != null)
+                {
+                    cursor.Revision = liveReadingRevision;
+                    cursor.Generation = generation;
                 }
                 snapshot = new { mode = Demo ? "demo" : Listening ? "live" : "stopped", serverTime = BeijingTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                     monitoringState = stoppingTogether ? "stopping" : Listening ? "running" : "stopped", received = Received, accepted = Accepted, invalid = Invalid, duplicates = Duplicates, lost = Lost, outOfOrder = OutOfOrder, filtered = Filtered, bytes = Bytes, sendMonitor = Outgoing.Info(),
@@ -505,6 +518,43 @@ namespace TelemetryMonitor
                     rawSppRevision=rawSppRevision,rawSppRetained=RawSppRetained,rawSppEnabled=runtimeRawEnabled,rawSppOnly=runtimeRawOnly,
                     replay = ReplayInfo(), liveAbnormalCount = liveAbnormal.Count, liveAbnormalRevision = liveAbnormalRevision };
             }
+            FormatSnapshotTimes(rows);
+            return snapshot;
+        }
+
+        // Skip the monitor lock when no frames containing decoded parameters have arrived.
+        internal object LatestReadingUpdates(List<string> selected, LiveReadingCursor cursor)
+        {
+            if (Interlocked.Read(ref liveReadingRevision) == cursor.Revision) return null;
+            var rows = new List<LiveSnapshotRow>();
+            lock (Gate)
+            {
+                // The following full snapshot reestablishes state after a restart or configuration change.
+                if (generation != cursor.Generation || (!Listening && !Demo)) return null;
+                DateTime now = DateTime.UtcNow;
+                double dataNow = HistorySeconds();
+                foreach (string id in selected)
+                {
+                    Reading reading;
+                    if (Values.TryGetValue(id, out reading) && reading.DisplayRevision > cursor.Revision)
+                        rows.Add(SnapshotReading(reading, dataNow, now));
+                }
+                cursor.Revision = liveReadingRevision;
+            }
+            if (rows.Count == 0) return null;
+            FormatSnapshotTimes(rows);
+            return rows;
+        }
+
+        private LiveSnapshotRow SnapshotReading(Reading reading, double dataNow, DateTime now)
+        {
+            return new LiveSnapshotRow { id = reading.Id, value = reading.Value, raw = reading.Raw, hexSource = reading.HexSource,
+                status = (!Listening && !Demo) ? "已停止" : DisplayReadingStatus(reading, dataNow, now),
+                ReceivedAt = reading.Time, sequence = reading.Sequence };
+        }
+
+        private static void FormatSnapshotTimes(IEnumerable<LiveSnapshotRow> rows)
+        {
             var times = new Dictionary<DateTime,string>();
             foreach (var row in rows)
             {
@@ -513,7 +563,6 @@ namespace TelemetryMonitor
                 if (!times.TryGetValue(row.ReceivedAt, out time)) times[row.ReceivedAt] = time = BeijingTime.Format(row.ReceivedAt,"HH:mm:ss.fff");
                 row.time = time;
             }
-            return snapshot;
         }
 
         public object PacketPreview()

@@ -59,8 +59,10 @@ function isActive(p) {
   return p.Group === '工仪全程' || (profile === 'IMU标定' ? p.Group === '工仪IMU标定' : profile !== '全程' && (p.Group === '工仪RVD共用' || p.Group === '工仪' + profile));
 }
 function setConnection(connected) {
+  const changed = app.connected !== connected;
   app.connected = connected;
-  const c = $('connection'); c.className = 'connection ' + (connected ? 'connected' : 'disconnected');
+  const c = $('connection');
+  if (!changed && c.classList.contains(connected ? 'connected' : 'disconnected')) return; c.className = 'connection ' + (connected ? 'connected' : 'disconnected');
   c.replaceChildren(element('span', 'dot'), document.createTextNode(connected ? '实时连接正常' : '连接中断 · 正在重连'));
   if (!connected && app.state) renderParameters();
   window.ContinuousUI?.renderConnection();

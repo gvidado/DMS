@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -43,6 +44,37 @@ namespace TelemetryMonitor
                 catch (ObjectDisposedException) { return; }
             }
         }
+        private void WriteLiveEvents(HttpListenerResponse response, Session session, bool separateReadings)
+        {
+            var cursor = separateReadings ? new Monitor.LiveReadingCursor() : null;
+            var clock = Stopwatch.StartNew();
+            List<string> selected = null;
+            long nextSnapshot = 0;
+            while (running && auth.Find(session.Token) != null)
+            {
+                long tick = clock.ElapsedMilliseconds;
+                if (tick >= nextSnapshot || !separateReadings)
+                {
+                    selected = auth.ResolveSelection(session, liveMonitor.Catalog);
+                    WriteLiveEvent(response, "", liveMonitor.Snapshot(selected, cursor));
+                    nextSnapshot = tick + 250;
+                }
+                else
+                {
+                    object updates = liveMonitor.LatestReadingUpdates(selected, cursor);
+                    if (updates != null) WriteLiveEvent(response, "event: readings\n", updates);
+                }
+                Thread.Sleep(separateReadings || liveMonitor.Demo ? 50 : 250);
+            }
+        }
+
+        private static void WriteLiveEvent(HttpListenerResponse response, string prefix, object data)
+        {
+            byte[] frame = Encoding.UTF8.GetBytes(prefix + "data: " + JsonFile.Encode(data) + "\n\n");
+            response.OutputStream.Write(frame, 0, frame.Length);
+            response.OutputStream.Flush();
+        }
+
         private static void Json(HttpListenerResponse response, object value, int status)
         {
             if(configurationRequest!=null)value=configurationRequest.BeforeResponse(response,value,status);
@@ -164,11 +196,7 @@ namespace TelemetryMonitor
                     try
                     {
                         res.ContentType = "text/event-stream; charset=utf-8"; res.SendChunked = true; res.KeepAlive = true;
-                        while (running && auth.Find(session.Token) != null)
-                        {
-                            byte[] frame = Encoding.UTF8.GetBytes("data: " + JsonFile.Encode(monitor.Snapshot(auth.ResolveSelection(session, monitor.Catalog))) + "\n\n");
-                            res.OutputStream.Write(frame, 0, frame.Length); res.OutputStream.Flush(); Thread.Sleep(monitor.Demo ? 50 : 250);
-                        }
+                        WriteLiveEvents(res, session, Query(req, "readings") == "1");
                     }
                     finally { auth.CloseStream(session); }
                     return;

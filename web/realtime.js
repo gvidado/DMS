@@ -17,13 +17,19 @@ window.RealtimeUI={start(user){
   }
   async function poll(){
     if(!alive()||!fallback||polling)return;polling=true;
+    const started=performance.now();
     try{deliver(await api('state'));}catch{if(alive()){setConnection(false);checkAuth();}}
-    finally{polling=false;if(alive()&&fallback)pollTimer=setTimeout(poll,document.hidden?2000:250);}
+    finally{
+      polling=false;
+      const cadence=document.hidden?2000:app.view==='parameters'&&app.state?.mode!=='stopped'?100:250;
+      if(alive()&&fallback)pollTimer=setTimeout(poll,Math.max(25,cadence-(performance.now()-started)));
+    }
   }
   function startPolling(){if(!alive()||fallback)return;fallback=true;clearWatchdog();stopWorker();poll();}
   function workerMessage(event){
     if(!alive()||fallback)return;const message=event.data||{};
     if(message.type==='state')deliver(message.state);
+    else if(message.type==='readings'&&app.state&&app.connected)window.ParameterDisplayUI?.applyReadings(message.rows);
     else if(message.type==='reauth')checkAuth();
     else if(message.type==='connection'){
       setConnection(!!message.connected);
@@ -33,7 +39,7 @@ window.RealtimeUI={start(user){
   }
   if(typeof SharedWorker==='function'){
     try{
-      worker=new SharedWorker('/realtime-worker.js',{name:'telemetry-realtime-v1'});port=worker.port;port.onmessage=workerMessage;port.onmessageerror=startPolling;
+      worker=new SharedWorker('/realtime-worker.js',{name:'telemetry-realtime-v2'});port=worker.port;port.onmessage=workerMessage;port.onmessageerror=startPolling;
       worker.onerror=event=>{event.preventDefault();startPolling();};port.start();port.postMessage({type:'subscribe',session:user.csrf});
       heartbeat=setInterval(()=>{if(alive()&&port)port.postMessage({type:'ping',session:user.csrf});},20000);watchdog=setTimeout(startPolling,4000);
     }catch{startPolling();}
