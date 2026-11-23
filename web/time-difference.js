@@ -1,5 +1,5 @@
 'use strict';
-names['time-difference']=['时间差计算','计算两个时刻相差的总秒数。'];
+names['time-difference']=['时间差计算','计算时间差，或给一个时刻加减秒数。'];
 
 window.TimeDifferenceUI=(()=>{
   const form=$('time-difference-form');
@@ -10,6 +10,13 @@ window.TimeDifferenceUI=(()=>{
   const breakdown=$('time-difference-breakdown');
   const copy=$('time-difference-copy');
   const copyStatus=$('time-difference-copy-status');
+  const offsetForm=$('time-offset-form');
+  const offsetBase=$('time-offset-base');
+  const offsetSeconds=$('time-offset-seconds');
+  const offsetError=$('time-offset-error');
+  const offsetResult=$('time-offset-result');
+  const offsetCopy=$('time-offset-copy');
+  const offsetCopyStatus=$('time-offset-copy-status');
 
   function timestamp(value) {
     const text=value.normalize('NFKC').trim();
@@ -42,21 +49,26 @@ window.TimeDifferenceUI=(()=>{
     for(const input of [start,end])input.removeAttribute('aria-invalid');
   }
 
-  function read(input,label) {
-    const value=timestamp(input.value);
-    if(value!==null)return value;
-    error.textContent=input.value.trim()?label+'格式有误或日期不存在。请核对日期和时间。':'请填写'+label+'。';
-    error.hidden=false;
+  function reportError(input,message,field) {
+    field.textContent=message;
+    field.hidden=false;
     input.setAttribute('aria-invalid','true');
     input.focus();
+  }
+
+  function readTime(input,label,field) {
+    const value=timestamp(input.value);
+    if(value!==null)return value;
+    const message=input.value.trim()?label+'格式有误或日期不存在。请核对日期和时间。':'请填写'+label+'。';
+    reportError(input,message,field);
     return null;
   }
 
   function calculate() {
     clearResult();
-    const from=read(start,'起始时间');
+    const from=readTime(start,'起始时间',error);
     if(from===null)return;
-    const to=read(end,'结束时间');
+    const to=readTime(end,'结束时间',error);
     if(to===null)return;
     const difference=to-from;
     const whole=Math.floor(Math.abs(difference)/1000);
@@ -69,10 +81,40 @@ window.TimeDifferenceUI=(()=>{
     copy.disabled=false;
   }
 
-  function copyFromSelection() {
+  function clearOffset() {
+    offsetResult.textContent='—';
+    offsetCopy.disabled=true;
+    offsetCopyStatus.textContent='';
+    offsetError.hidden=true;
+    offsetError.textContent='';
+    for(const input of [offsetBase,offsetSeconds])input.removeAttribute('aria-invalid');
+  }
+
+  function shiftTime() {
+    clearOffset();
+    const base=readTime(offsetBase,'基准时间',offsetError);
+    if(base===null)return;
+    const text=offsetSeconds.value.normalize('NFKC').trim().replace('−','-');
+    const parts=/^([+-]?)(\d*)(?:\.(\d{1,3}))?$/.exec(text);
+    if(!parts||!(parts[2]||parts[3])) {
+      reportError(offsetSeconds,text?'请输入秒数，最多三位小数。':'请填写加减秒数。',offsetError);
+      return;
+    }
+    const magnitude=Number(parts[2])*1000+Number((parts[3]||'').padEnd(3,'0'));
+    const date=new Date(base+(parts[1]==='-'?-magnitude:magnitude));
+    const year=date.getUTCFullYear();
+    if(!Number.isSafeInteger(magnitude)||!(year>=1&&year<=9999)) {
+      reportError(offsetSeconds,'计算结果超出 0001 至 9999 年。请核对秒数。',offsetError);
+      return;
+    }
+    offsetResult.textContent=date.toISOString().replace('T',' ').replace(/(?:\.000)?Z$/,'');
+    offsetCopy.disabled=false;
+  }
+
+  function copyFromSelection(node) {
     const selection=window.getSelection();
     const range=document.createRange();
-    range.selectNodeContents(total);
+    range.selectNodeContents(node);
     selection.removeAllRanges();
     selection.addRange(range);
     try {
@@ -80,14 +122,14 @@ window.TimeDifferenceUI=(()=>{
     }catch{}
     return false;
   }
-  async function copySeconds() {
-    const value=total.textContent;
+  async function copyValue(node,status) {
+    const value=node.textContent;
     try {
       if(!navigator.clipboard)throw new Error();
       await navigator.clipboard.writeText(value);
-      if(total.textContent===value)copyStatus.textContent='已复制';
+      if(node.textContent===value)status.textContent='已复制';
     }catch{
-      if(total.textContent===value)copyStatus.textContent=copyFromSelection()?'已复制':'请按 Ctrl+C 复制';
+      if(node.textContent===value)status.textContent=copyFromSelection(node)?'已复制':'请按 Ctrl+C 复制';
     }
   }
 
@@ -99,6 +141,10 @@ window.TimeDifferenceUI=(()=>{
     if(start.value.trim()&&end.value.trim())calculate();
     else clearResult();
   });
-  copy.addEventListener('click',copySeconds);
-  return {reset:()=>form.reset()};
+  copy.addEventListener('click',()=>copyValue(total,copyStatus));
+  offsetForm.addEventListener('submit',event=>{event.preventDefault();shiftTime();});
+  offsetForm.addEventListener('input',clearOffset);
+  offsetForm.addEventListener('reset',clearOffset);
+  offsetCopy.addEventListener('click',()=>copyValue(offsetResult,offsetCopyStatus));
+  return {reset(){form.reset();offsetForm.reset();}};
 })();

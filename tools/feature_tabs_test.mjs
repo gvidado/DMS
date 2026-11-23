@@ -57,9 +57,34 @@ try{
  assert.equal(await start.getAttribute('aria-invalid'),'true');
  assert.match(await local.locator('#time-difference-error').textContent(),/日期不存在/);
  assert(await local.getByRole('button',{name:'复制总秒数'}).isDisabled());
- await local.getByRole('button',{name:'清空',exact:true}).click();
+ await local.locator('#time-difference-form').getByRole('button',{name:'清空',exact:true}).click();
  assert.equal(await start.inputValue(),'');assert.equal(await end.inputValue(),'');
  assert(await local.locator('#time-difference-error').isHidden());
+ const offset=local.locator('#time-offset-form');
+ const baseTime=offset.getByLabel('基准时间'),offsetSeconds=offset.getByLabel('加减秒数');
+ const shiftedTime=offset.locator('#time-offset-result'),offsetError=offset.locator('#time-offset-error');
+ async function shift(from,by,expected){
+  await baseTime.fill(from);await offsetSeconds.fill(by);await offsetSeconds.press('Enter');
+  assert.equal(await shiftedTime.textContent(),expected);
+ }
+ await shift('2026-04-15 16:28:44','157625','2026-04-17 12:15:49');
+ await shift('2026-04-15 17:12:07','-2603','2026-04-15 16:28:44');
+ await shift('2026-12-31 23:59:59','＋１','2027-01-01 00:00:00');
+ await shift('2028年3月1日00：00：00','−.125','2028-02-29 23:59:59.875');
+ await shift('2028-02-29 23:59:59.875','0','2028-02-29 23:59:59.875');
+ await offset.getByRole('button',{name:'复制时间'}).click();
+ await until(()=>offset.locator('#time-offset-copy-status').textContent().then(value=>value==='已复制'),'time copy confirmation');
+ assert.equal(await local.evaluate(()=>navigator.clipboard.readText()),'2028-02-29 23:59:59.875');
+ check(true,'time shifting handles positive and negative offsets, year rollover, leap day, milliseconds and copying');
+ await shift('9999-12-31 23:59:59','1','—');
+ assert.match(await offsetError.textContent(),/超出/);
+ await shift('2026-01-01 00:00:00','0.0001','—');
+ assert.match(await offsetError.textContent(),/最多三位小数/);
+ assert(await offset.getByRole('button',{name:'复制时间'}).isDisabled());
+ await offset.getByRole('button',{name:'清空',exact:true}).click();
+ assert.equal(await baseTime.inputValue(),'');assert.equal(await offsetSeconds.inputValue(),'');
+ assert(await offsetError.isHidden());
+ check(true,'invalid and out-of-range offsets are rejected and the offset form clears independently');
  await local.setViewportSize({width:390,height:820});
  check(await local.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'invalid dates, milliseconds, clear and narrow time calculator layout');
  await local.setViewportSize({width:1440,height:1050});

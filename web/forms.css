@@ -73,6 +73,7 @@ input[type="file"]::file-selector-button {
 
 
 .time-difference-panel { max-width: 920px; }
+.time-difference-panel + .time-difference-panel { margin-top: 18px; }
 .time-difference-form { display: grid; gap: 16px; }
 .time-difference-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
 .time-difference-fields label { display: grid; gap: 6px; min-width: 0; font-weight: 600; }
