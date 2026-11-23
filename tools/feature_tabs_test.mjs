@@ -17,7 +17,7 @@ try{
  await context.request.post(base+'/api/auth/setup',{data:{username:'featuresqa',name:'主功能测试',password}});await home.goto(base);await home.locator('#login-username').fill('featuresqa');await home.locator('#login-password').fill(password);await home.locator('#login-submit').click();await home.locator('#workspace').waitFor({state:'visible'});
  check(await home.locator('.home-entry[data-open-section]').count()===6&&await home.locator('#feature-tabs').isHidden(),'home contains six main-function entries and no internal tab bar');
  check((await home.locator('.home-entry-card').last().getAttribute('data-group'))==='账号管理','account management remains the final main function');
- const groups=[['data','数据显示',['parameters','raw-spp','results','overview','archives']],['configuration','系统配置',['settings','decoders','parameter-displays','judgments']],['local','本地检验',['captures','network']],['commands','指令控制',['command-panels','command-send','command-panel-config','command-config']],['sequences','序列任务',['sequence-config','sequence-run']],['accounts','账号管理',['accounts']]],pages=new Map();
+ const groups=[['data','数据显示',['parameters','raw-spp','results','overview','archives']],['configuration','系统配置',['settings','decoders','parameter-displays','judgments']],['local','本地检验',['captures','network','time-difference']],['commands','指令控制',['command-panels','command-send','command-panel-config','command-config']],['sequences','序列任务',['sequence-config','sequence-run']],['accounts','账号管理',['accounts']]],pages=new Map();
  for(const [key,title,views] of groups){
   const popup=home.waitForEvent('popup');await home.locator(`[data-open-section="${key}"]`).click();const page=await popup;await page.locator('#workspace').waitFor({state:'visible'});await until(()=>page.evaluate(view=>app.view===view,views[0]),key+' initial view');pages.set(key,page);
   assert.equal(new URL(page.url()).searchParams.get('section'),key);assert.equal(await page.title(),title+' · 数据判读系统');assert.equal(await page.locator('.feature-tab-group:not(.hidden) .feature-tab').count(),views.length);assert.equal(await page.evaluate(()=>window.opener===null),true);
@@ -25,6 +25,44 @@ try{
  check(context.pages().length===7,'six primary functions open six independent browser tabs and share login');
  for(const [key,,views] of groups){const page=pages.get(key);const count=context.pages().length;for(const view of views){await page.locator(`[data-tab-view="${view}"]`).click();await until(()=>page.evaluate(view=>app.view===view,view),'local '+view);assert.equal(await page.locator('#view-'+view).isVisible(),true);assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--control-height').trim()),'38px');assert.equal(await page.locator(`[data-tab-view="${view}"]`).getAttribute('aria-selected'),'true');assert.equal(new URL(page.url()).searchParams.get('section'),key);}assert.equal(context.pages().length,count);}
  check(true,'all feature views load the shared controls and switch inside their parent page');
+ const local=pages.get('local');
+ await local.bringToFront();
+ await local.locator('[data-tab-view="time-difference"]').click();
+ const start=local.getByLabel('起始时间'),end=local.getByLabel('结束时间');
+ const seconds=local.locator('#time-difference-seconds'),breakdown=local.locator('#time-difference-breakdown');
+ async function difference(from,to,expected,detail){
+  await start.fill(from);
+  await end.fill(to);
+  await end.press('Enter');
+  assert.equal(await seconds.textContent(),expected);
+  assert.equal(await breakdown.textContent(),detail);
+ }
+ await difference('2026-04-15 16：28：44','2026-04-17 12:15:49','157625','1 天 19 小时 47 分 5 秒');
+ await difference('2026-04-15 16:28:44','2026-04-15 17:12:07','2603','43 分 23 秒');
+ await difference('2029年9月10日12：8：54','2029年9月11日14：5：43','93409','1 天 1 小时 56 分 49 秒');
+ check(true,'all three date and time examples produce the expected seconds');
+ await local.getByRole('button',{name:'交换起止'}).click();
+ assert.equal(await seconds.textContent(),'-93409');
+ assert.match(await breakdown.textContent(),/结束时间早于起始时间/);
+ await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:base});
+ await local.getByRole('button',{name:'复制总秒数'}).click();
+ await until(()=>local.locator('#time-difference-copy-status').textContent().then(value=>value==='已复制'),'copy confirmation');
+ assert.equal(await local.evaluate(()=>navigator.clipboard.readText()),'-93409');
+ check(true,'swapping reverses the sign and the copy contains only the numeric result');
+ await difference('2028/02/29 23:59:59.900','2028-03-01T00:00:00.025','0.125','0.125 秒');
+ await difference('2026年1月1日8时5分','2026-01-01 08:05','0','0 秒');
+ await start.fill('2026-02-29 00:00:00');
+ await end.press('Enter');
+ assert.equal(await seconds.textContent(),'—');
+ assert.equal(await start.getAttribute('aria-invalid'),'true');
+ assert.match(await local.locator('#time-difference-error').textContent(),/日期不存在/);
+ assert(await local.getByRole('button',{name:'复制总秒数'}).isDisabled());
+ await local.getByRole('button',{name:'清空',exact:true}).click();
+ assert.equal(await start.inputValue(),'');assert.equal(await end.inputValue(),'');
+ assert(await local.locator('#time-difference-error').isHidden());
+ await local.setViewportSize({width:390,height:820});
+ check(await local.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'invalid dates, milliseconds, clear and narrow time calculator layout');
+ await local.setViewportSize({width:1440,height:1050});
  const settings=pages.get('configuration');await settings.locator('[data-tab-view="settings"]').click();await settings.locator('#cfg-port').fill('45678');await settings.locator('[data-tab-view="decoders"]').click();await settings.locator('[data-tab-view="settings"]').click();check(await settings.locator('#cfg-port').inputValue()==='45678','switching internal tabs preserves unsaved listening settings');
  await settings.locator('[data-tab-view="judgments"]').click();const address=settings.url();await settings.reload();await settings.locator('#workspace').waitFor({state:'visible'});check(settings.url()===address&&await settings.locator('#view-judgments').isVisible(),'refresh restores both primary function and selected internal tab');
  const data=pages.get('data');await data.locator('[data-tab-view="overview"]').click();const count=context.pages().length;await data.locator('#open-unified-abnormals').click();await until(()=>data.evaluate(()=>app.view==='results'),'abnormal result shortcut');check(context.pages().length===count&&new URL(data.url()).hash==='#judgment-abnormal-panel','a shortcut within the same main function switches local tabs and scrolls to its panel');

@@ -14,9 +14,10 @@ window.WorkspaceUI = (() => {
       ['decoders','解码配置','导入遥测表，配置需要识别和解码的SPP包。','◇'],
       ['parameter-displays','参数显示配置','管理显示画面，配置多个参数框的位置、尺寸与显示内容。','▦'],
       ['judgments','判读配置','常态化规则、Excel导入、TC指令代号绑定。','≡']]},
-    {name:'本地检验', icon:'⇄', description:'使用抓包文件检验解码与真实收发链路。', items:[
+    {name:'本地检验', icon:'⇄', description:'检验抓包、模拟收发或计算两个时刻的间隔。', items:[
       ['captures','文件检验','检查pcapng报文，查看统计与完整异常原文。','▤'],
-      ['network','回放模拟','按抓包时间进行UDP回放，验证真实收发。','⇄']]},
+      ['network','回放模拟','按抓包时间进行UDP回放，验证真实收发。','⇄'],
+      ['time-difference','时间差计算','计算两个时刻的间隔，得到总秒数。','◷']]},
     {name:'账号管理', icon:'♙', description:'管理系统账号与操作员访问。', items:[
       ['accounts','账号管理','创建操作员账号、查看账号和重置密码。','♙']]},
     {name:'指令控制', icon:'➤', description:'发送库内指令，配置发送端口、监视范围和指令库。', items:[
