@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>数据判读系统</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/parameter-display.css"><link rel="stylesheet" href="/command-panels.css"><link rel="stylesheet" href="/telemetry-import.css"><link rel="stylesheet" href="/sequence.css"><link rel="stylesheet" href="/forms.css"><script src="/app.js" defer></script><script src="/layout-clipboard.js" defer></script><script src="/layout-arrange.js" defer></script><script src="/configuration.js" defer></script><script src="/decoder.js" defer></script><script src="/telemetry-import.js" defer></script><script src="/capture.js" defer></script><script src="/runtime.js" defer></script><script src="/raw-spp.js" defer></script><script src="/alarms.js" defer></script><script src="/network-replay.js" defer></script><script src="/send-monitor.js" defer></script><script src="/command-xml.js" defer></script><script src="/command-send.js" defer></script><script src="/continuous.js" defer></script><script src="/namespace-migration.js" defer></script><script src="/unified-abnormals.js" defer></script><script src="/sequence.js" defer></script><script src="/flight-sequence.js" defer></script><script src="/judgment-archives.js" defer></script><script src="/realtime.js" defer></script><script src="/command-panels.js" defer></script><script src="/time-difference.js" defer></script><script src="/workspace.js" defer></script><script src="/parameter-display.js" defer></script><script src="/display-size.js" defer></script></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>数据判读系统</title><link rel="icon" href="/logo.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/parameter-display.css"><link rel="stylesheet" href="/command-panels.css"><link rel="stylesheet" href="/telemetry-import.css"><link rel="stylesheet" href="/sequence.css"><link rel="stylesheet" href="/forms.css"><script src="/app.js" defer></script><script src="/layout-clipboard.js" defer></script><script src="/layout-arrange.js" defer></script><script src="/configuration.js" defer></script><script src="/decoder.js" defer></script><script src="/telemetry-import.js" defer></script><script src="/capture.js" defer></script><script src="/runtime.js" defer></script><script src="/raw-spp.js" defer></script><script src="/alarms.js" defer></script><script src="/network-replay.js" defer></script><script src="/send-monitor.js" defer></script><script src="/command-xml.js" defer></script><script src="/command-send.js" defer></script><script src="/continuous.js" defer></script><script src="/namespace-migration.js" defer></script><script src="/unified-abnormals.js" defer></script><script src="/sequence.js" defer></script><script src="/flight-sequence.js" defer></script><script src="/judgment-archives.js" defer></script><script src="/realtime.js" defer></script><script src="/command-panels.js" defer></script><script src="/time-difference.js" defer></script><script src="/orbit-model.js" defer></script><script src="/orbit-conversion.js" defer></script><script src="/workspace.js" defer></script><script src="/parameter-display.js" defer></script><script src="/display-size.js" defer></script></head>
 <body>
 <section id="startup-screen" class="startup-screen" aria-label="页面载入"><div class="startup-content"><h1>数据判读系统</h1><p id="startup-message" class="muted" role="status">正在载入，请稍候…</p><p id="startup-error" class="form-error hidden" role="alert"></p><button id="startup-retry" class="button hidden" type="button">重新载入</button><noscript><p>请启用浏览器的JavaScript后刷新页面。</p></noscript></div></section>
 <section id="login-screen" class="login-screen hidden" hidden>
@@ -80,6 +80,47 @@
           </div>
         </div>
       </form>
+    </section>
+  </section>
+  <section id="view-orbit-conversion" class="view hidden">
+    <section class="panel orbit-conversion-panel">
+      <div class="panel-heading"><h2>轨道六根数转十九根数</h2></div>
+      <form id="orbit-conversion-form" class="section-pad orbit-conversion-form" novalidate>
+        <div class="form-grid orbit-input-grid">
+          <label>半长轴 a（m）<input id="orbit-a" type="text" maxlength="40" required></label>
+          <label>偏心率 e<input id="orbit-e" type="text" maxlength="40" required></label>
+          <label>轨道倾角 i（rad）<input id="orbit-i" type="text" maxlength="40" required></label>
+          <label>升交点赤经 Ω（rad）<input id="orbit-node" type="text" maxlength="40" required></label>
+          <label>近地点幅角 ω（rad）<input id="orbit-periapsis" type="text" maxlength="40" required></label>
+          <label>真近点角 ν（rad）<input id="orbit-anomaly" type="text" maxlength="40" required></label>
+        </div>
+        <label class="orbit-epoch-field">初始化历元<input id="orbit-epoch" type="text" maxlength="48" placeholder="YYYY-MM-DD HH:mm:ss" aria-describedby="orbit-epoch-hint" required><small id="orbit-epoch-hint">按原初始化日期时间填写。按输入的时间直接计算。</small></label>
+        <details id="orbit-initialization">
+          <summary>初始化参数</summary>
+          <div class="form-grid orbit-extra">
+            <label>输入时间偏移 t_in（s）<input id="orbit-time-offset" type="text" value="0" maxlength="40"><small>初始化文本第 2 项和第 38 项相加。</small></label>
+            <label>初始化量 x<input id="orbit-init-x" type="text" value="0" maxlength="40"><small>初始化文本第 34 项。</small></label>
+          </div>
+        </details>
+        <div class="rule-toolbar">
+          <button class="button primary" type="submit">计算</button>
+          <button class="button" type="reset">清空</button>
+        </div>
+        <p id="orbit-conversion-error" class="form-error" role="alert" hidden></p>
+      </form>
+    </section>
+    <section class="panel orbit-conversion-panel" id="orbit-conversion-result" hidden>
+      <div class="panel-heading">
+        <h2>十九根数</h2>
+        <div class="rule-toolbar">
+          <small id="orbit-copy-status" role="status"></small>
+          <button id="orbit-copy" class="button" type="button">复制数值</button>
+        </div>
+      </div>
+      <div class="table-scroll orbit-result-scroll">
+        <table class="data-table"><thead><tr><th scope="col">序号</th><th scope="col">字段</th><th scope="col">数值</th></tr></thead>
+        <tbody id="orbit-conversion-rows"></tbody></table>
+      </div>
     </section>
   </section>
   <footer class="page-footer"><span>数据判读系统 · 数据接入阶段 v0.2</span><span id="server-clock">服务器时间 —</span></footer></div></main></div>

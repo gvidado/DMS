@@ -45,6 +45,7 @@ function signedOut(message = '') {
   window.SequenceUI?.reset();
   window.FlightSequenceUI?.reset();
   window.TimeDifferenceUI?.reset();
+  window.OrbitConversionUI?.reset();
   window.ContinuousUI?.reset();
   window.NamespaceMigrationUI?.reset();
   if (app.stream) app.stream.close(); app.stream = null; app.user = null; app.connected = false;

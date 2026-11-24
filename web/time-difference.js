@@ -146,5 +146,5 @@ window.TimeDifferenceUI=(()=>{
   offsetForm.addEventListener('input',clearOffset);
   offsetForm.addEventListener('reset',clearOffset);
   offsetCopy.addEventListener('click',()=>copyValue(offsetResult,offsetCopyStatus));
-  return {reset(){form.reset();offsetForm.reset();}};
+  return {parseTimestamp:timestamp,reset(){form.reset();offsetForm.reset();}};
 })();
