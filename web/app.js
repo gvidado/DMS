@@ -38,7 +38,7 @@ function signedOut(message = '') {
   window.RawSppUI?.reset();
   window.AlarmUI?.reset();
   window.UnifiedAbnormalUI?.reset();
-  window.JudgmentArchiveUI?.reset();
+  window.JudgmentArchiveUI?.reset();window.HistoryUI?.reset();
   window.NetworkReplayUI?.reset();
   window.SendMonitorUI?.reset();
   window.CommandSendUI?.reset();
@@ -137,6 +137,7 @@ function navigate(view, currentPage=false) {
   window.CommandPanelUI?.activate(view);
   if (view === 'raw-spp') window.RawSppUI?.load();
   if (view === 'archives') window.JudgmentArchiveUI?.load();
+  if (view === 'history' || view === 'history-config') window.HistoryUI?.load();
   if (view === 'settings' && !app.settingsDirty) api('config?draft=1').then(value=>{if(app.view==='settings'&&!app.settingsDirty){app.draftConfig=value;fillConfig();}}).catch(e=>toast(e.message,true));
   if (view === 'accounts') loadAccounts();
   if (view === 'network') window.NetworkReplayUI?.load();

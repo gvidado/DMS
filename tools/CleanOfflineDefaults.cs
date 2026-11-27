@@ -28,6 +28,7 @@ internal static class CleanOfflineDefaults
             save("tc-bindings.json",new TCBindingConfig{Revision=Guid.NewGuid().ToString("N")});
             save("sequences.json",new SequenceConfiguration{Revision=Guid.NewGuid().ToString("N")});
             save("observed-commands.json",new ObservedCommandConfiguration());
+            save("history-storage.json",new HistoryStorageConfiguration{ArchiveEnabled=false});
             Console.WriteLine("Generated empty offline configuration at "+root);
             return 0;
         }

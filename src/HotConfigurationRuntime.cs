@@ -135,7 +135,7 @@ namespace TelemetryMonitor
                         Note("error","配置已生效；序列任务接续失败，已保留已有结果："+ex.Message);
                     }
                 });
-                RefreshSequenceTasks();generation++;
+                RefreshSequenceTasks();generation++;EnsureHistoryConfiguration(true);
                 Note("info","待生效配置已统一切换；保留接收计数、原包、异常、判读和存档，运行中的任务使用新配置");
             }
         }

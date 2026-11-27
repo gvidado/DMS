@@ -13,12 +13,14 @@ window.WorkspaceUI = (() => {
       ['settings','监听配置','设置UDP端口、组播、来源与数据超时。','⚙'],
       ['decoders','解码配置','导入遥测表，配置需要识别和解码的SPP包。','◇'],
       ['parameter-displays','参数显示配置','管理显示画面，配置多个参数框的位置、尺寸与显示内容。','▦'],
-      ['judgments','判读配置','常态化规则、Excel导入、TC指令代号绑定。','≡']]},
+      ['judgments','判读配置','常态化规则、Excel导入、TC指令代号绑定。','≡'],
+      ['history-config','历史存储配置','设置历史归档目录和 PostgreSQL 连接。','▤']]},
     {name:'本地检验', icon:'⇄', description:'检验抓包、模拟收发，使用时间计算与根数转换工具。', items:[
       ['captures','文件检验','检查pcapng报文，查看统计与完整异常原文。','▤'],
       ['network','回放模拟','按抓包时间进行UDP回放，验证真实收发。','⇄'],
       ['time-difference','时间差计算','计算两个时刻的间隔，或按秒数推算时间。','◷'],
       ['orbit-conversion','根数转换','按指定历元将轨道六根数转换为十九根数。','∠']]},
+    {name:'历史查询',icon:'⌕',description:'查询遥测、通信报文与指令，并导出数据集。',items:[['history','历史查询','按试验、时间、参数和指令筛选历史。','⌕']]},
     {name:'账号管理', icon:'♙', description:'管理系统账号与操作员访问。', items:[
       ['accounts','账号管理','创建操作员账号、查看账号和重置密码。','♙']]},
     {name:'指令控制', icon:'➤', description:'发送库内指令，配置发送端口、监视范围和指令库。', items:[
@@ -33,7 +35,7 @@ window.WorkspaceUI = (() => {
   // Keep account administration last when more feature groups are added.
   const accountGroup=groups.findIndex(group=>group.items.some(([key])=>key==='accounts'));
   if(accountGroup>=0)groups.push(...groups.splice(accountGroup,1));
-  const sectionKeys=['data','configuration','local','commands','sequences','accounts'];
+  const sectionKeys=['data','configuration','local','history','commands','sequences','accounts'];
   groups.forEach((group,index)=>{group.key=sectionKeys[index];});
   const groupOf=view=>groups.find(group=>group.items.some(([key])=>key===view));
   function url(view,anchor=''){

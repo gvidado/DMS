@@ -32,6 +32,7 @@ namespace TelemetryMonitor
         }
         public void Start()
         {
+            InitializeHistoryStorage();
             ThreadPool.SetMinThreads(32, 32); http.Start(); running = true;
             InitializeSequenceService(); InitializeConfigurationSchedule();new Thread(Accept) { IsBackground = true, Name = "HTTP accept" }.Start();
         }
@@ -114,7 +115,7 @@ namespace TelemetryMonitor
                 res.Headers["Cache-Control"] = "no-store";
                 string path = req.Url.AbsolutePath;
                 if (req.HttpMethod != "GET" && req.HttpMethod != "POST") { Json(res, new { error = "不支持的请求方法" }, 405); return; }
-                if (req.HttpMethod == "GET" && new[] { "/", "/index.html", "/app.js", "/layout-clipboard.js", "/layout-arrange.js", "/decoder.js", "/configuration.js", "/telemetry-import.js", "/telemetry-import.css", "/capture.js", "/runtime.js", "/raw-spp.js", "/alarms.js", "/network-replay.js", "/send-monitor.js", "/command-xml.js", "/command-send.js", "/command-panels.js", "/command-panels.css", "/sequence.js", "/flight-sequence.js", "/sequence.css", "/continuous.js", "/namespace-migration.js", "/unified-abnormals.js", "/judgment-archives.js", "/workspace.js", "/time-difference.js", "/orbit-model.js", "/orbit-conversion.js", "/display-size.js", "/parameter-display.js", "/parameter-display.css", "/realtime.js", "/realtime-worker.js", "/style.css", "/forms.css", "/logo.svg" }.Contains(path))
+                if (req.HttpMethod == "GET" && new[] { "/", "/index.html", "/app.js", "/layout-clipboard.js", "/layout-arrange.js", "/decoder.js", "/configuration.js", "/telemetry-import.js", "/telemetry-import.css", "/capture.js", "/runtime.js", "/raw-spp.js", "/alarms.js", "/network-replay.js", "/send-monitor.js", "/command-xml.js", "/command-send.js", "/command-panels.js", "/command-panels.css", "/sequence.js", "/flight-sequence.js", "/sequence.css", "/continuous.js", "/namespace-migration.js", "/unified-abnormals.js", "/history-filters.js", "/history.js", "/history.css", "/judgment-archives.js", "/workspace.js", "/time-difference.js", "/orbit-model.js", "/orbit-conversion.js", "/display-size.js", "/parameter-display.js", "/parameter-display.css", "/realtime.js", "/realtime-worker.js", "/style.css", "/forms.css", "/logo.svg" }.Contains(path))
                 {
                     string name = path == "/" ? "index.html" : path.Substring(1);
                     ServeWebAsset(ctx, name);
@@ -167,6 +168,7 @@ namespace TelemetryMonitor
                 if (HandleNetworkReplay(ctx, session)) return;
                 if (HandleSendMonitor(ctx, session)) return;
                 if (HandleCommandSending(ctx, session)) return;
+                if (HandleHistoryStorage(ctx, session)) return;
                 if (HandleAlarms(ctx, session)) return;
                 if (HandleUnifiedAbnormals(ctx, session)) return;
                 if (HandleJudgmentArchives(ctx, session)) return;
@@ -260,6 +262,6 @@ namespace TelemetryMonitor
         }
         private static void SafeError(HttpListenerContext ctx, string text, int code)
         { try { Json(ctx.Response, new { error = text }, code); } catch { } }
-        public void Dispose() { running = false; if(sequenceTimer!=null)sequenceTimer.Dispose(); if(configurationTimer!=null)configurationTimer.Dispose();http.Close(); DisposeCaptureChecks(); lock(configurationEditGate)lock(commandGate){DisposeConfigurationEditor();liveMonitor.Dispose();} }
+        public void Dispose() { running = false; if(sequenceTimer!=null)sequenceTimer.Dispose(); if(configurationTimer!=null)configurationTimer.Dispose();http.Close(); DisposeCaptureChecks(); DisposeHistoryImport(); lock(configurationEditGate)lock(commandGate){DisposeConfigurationEditor();liveMonitor.Dispose();} if(historyStorage!=null)historyStorage.Dispose(); }
     }
 }

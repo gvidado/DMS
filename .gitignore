@@ -5,7 +5,9 @@
 /test-output/
 /备份/
 /提供材料/
-/database/
+/database/*
+!/database/initialize-history.sql
+!/database/history-schema-v1.sql
 /native/postgresql/
 *.bak
 *.tmp

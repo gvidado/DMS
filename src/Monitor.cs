@@ -131,6 +131,7 @@ namespace TelemetryMonitor
                         pending.Client.ReceiveTimeout = 0;
                         pending.Client.Bind(new IPEndPoint(IPAddress.Parse(Config.BindAddress), Config.UdpPort));
                         List<string> joined = UdpMulticast.Join(pending, Config);
+                        BeginHistorySession("LIVE_UDP");
                         Outgoing.Start(); captureStarted = true;
                         if (!Outgoing.IsRunning) throw new InvalidOperationException("发送抓包未成功启动，本次监听已撤回，请检查发送监视诊断");
                         socket = pending; hotSocketSettings=null;multicastInterfaces = joined; Reset(); recordedRunAlarms.Clear(); packetStatisticsMode = "live"; Listening = true;
@@ -148,6 +149,7 @@ namespace TelemetryMonitor
                         if (pending != null && socket == pending) { Listening = false; socket = null; multicastInterfaces.Clear(); generation++; }
                         if (pending != null) pending.Close();
                     }
+                    lock (Gate) EndHistorySession("监听启动失败");
                     // Capture logging uses Gate; join only after releasing it.
                     if (captureStarted) Outgoing.Stop();
                     throw;
@@ -177,7 +179,7 @@ namespace TelemetryMonitor
                     if (Outgoing != null) Outgoing.Stop();
                     Note("info", "UDP接收与发送报文监视已全部停止，保留本次参数、统计和最近200条发送记录；再次启动将重置。");
                 }
-                finally { lock (Gate) { stoppingTogether = false; } }
+                finally { lock (Gate) { stoppingTogether = false; EndHistorySession("接收已停止"); } }
             }
         }
         private void OutgoingNote(string level, string message)
@@ -220,7 +222,8 @@ namespace TelemetryMonitor
                         lock (Gate)
                         {
                             if (!Listening || socket != client) return;
-                            ProcessReceived(data,peer.Address.ToString(),false,peer.Port,0,stamp);
+                            ProcessReceived(data,peer.Address.ToString(),false,peer.Port,0,stamp,
+                                Config.MulticastGroup.Length>0 ? Config.MulticastGroup : Config.BindAddress);
                         }
                     }
                     catch (SocketException ex)
@@ -247,7 +250,7 @@ namespace TelemetryMonitor
         private void Process(byte[] data,string ip,bool simulated,int sourcePort=0,long captureFrame=0)
         {ProcessReceived((byte[])data.Clone(),ip,simulated,sourcePort,captureFrame,EventStamp.Now());}
         // Socket and capture readers hand over a fresh array. Retained records share it as read-only.
-        private void ProcessReceived(byte[] data, string ip, bool simulated, int sourcePort, long captureFrame, EventStamp stamp)
+        private void ProcessReceived(byte[] data, string ip, bool simulated, int sourcePort, long captureFrame, EventStamp stamp, string destination = "")
         {
             // Keep the actual receive timestamp even when processing waited for Gate.
             if (!simulated && stamp != null && stamp.DataSeconds > 0)
@@ -255,180 +258,218 @@ namespace TelemetryMonitor
                 processingDelayMs = Math.Max(0, (RuleSeconds() - stamp.DataSeconds) * 1000);
                 maxProcessingDelayMs = Math.Max(maxProcessingDelayMs, processingDelayMs);
             }
-            Received++; Bytes += data.Length;
-            if (!simulated && Array.IndexOf(Config.SourceIPs, ip) < 0)
-            {
-                Filtered++;
-                return;
-            }
-            SourceState src;
-            if (!sources.TryGetValue(ip, out src)) sources[ip] = src = new SourceState { IP = ip };
-            src.Received++; src.LastReceived = DateTime.UtcNow;
-            lastDatagram = data;
-            string receiveTime = BeijingTime.Format(stamp.ReceivedUtc,"HH:mm:ss.fff");
-            Settings cfg = Config;
-            Packet p = null;
-            PacketRoute route = null;
-            PacketDefinition definition = null;
-            PacketDecodePlan plan = null;
-            LivePacketCounters packetCount = null;
-            string parseError = null;
+            var historyRecord = BeginHistoryPacket(data, ip, simulated, sourcePort, captureFrame, stamp, destination);
+            HistoryValue[] historySamples = null;
+            int historySampleCount = 0;
             try
             {
-                if (NativeDecoder)
+                Received++; Bytes += data.Length;
+                if (!simulated && Array.IndexOf(Config.SourceIPs, ip) < 0)
                 {
-                    bool rawValid;
-                    Packet rawParsed;
-                    bool rawMatched = CaptureRawSpp(lastDatagram, ip, simulated, sourcePort, captureFrame, out rawValid, out rawParsed);
-                    route = PacketCodec.Resolve(data, ip, RuntimeRouteCandidates(data, false));
-                    if (rawMatched && route.Definition == null && !route.Ambiguous)
+                    Filtered++;
+                    if (historyRecord != null) historyRecord.Status = "FILTERED_SOURCE";
+                    return;
+                }
+                SourceState src;
+                if (!sources.TryGetValue(ip, out src)) sources[ip] = src = new SourceState { IP = ip };
+                src.Received++; src.LastReceived = DateTime.UtcNow;
+                lastDatagram = data;
+                string receiveTime = BeijingTime.Format(stamp.ReceivedUtc,"HH:mm:ss.fff");
+                Settings cfg = Config;
+                Packet p = null;
+                PacketRoute route = null;
+                PacketDefinition definition = null;
+                PacketDecodePlan plan = null;
+                LivePacketCounters packetCount = null;
+                string parseError = null;
+                try
+                {
+                    if (NativeDecoder)
                     {
-                        if (rawValid) { src.LastValid = DateTime.UtcNow; src.OfflineConditionActive = false; }
-                        lastDatagramInfo = new { length = data.Length, time = receiveTime, result = "SPP原包已独立留存；未参与遥测解码" };
-                        return;
+                        bool rawValid;
+                        Packet rawParsed;
+                        bool rawMatched = CaptureRawSpp(lastDatagram, ip, simulated, sourcePort, captureFrame, out rawValid, out rawParsed);
+                        route = PacketCodec.Resolve(data, ip, RuntimeRouteCandidates(data, false));
+                        if (rawMatched && route.Definition == null && !route.Ambiguous)
+                        {
+                            FillHistoryPacket(historyRecord, rawParsed);
+                            if (historyRecord != null) historyRecord.Status = rawValid ? "RAW_VALID" : "RAW_INVALID";
+                            if (rawValid) { src.LastValid = DateTime.UtcNow; src.OfflineConditionActive = false; }
+                            lastDatagramInfo = new { length = data.Length, time = receiveTime, result = "SPP原包已独立留存；未参与遥测解码" };
+                            return;
+                        }
+                        if (route.Definition == null) parseError = route.Reason;
+                        else
+                        {
+                            definition = route.Definition;
+                            packetCount = PacketCountersFor(definition.Id);
+                            packetCount.Received++;
+                            packetCount.LastMatch=stamp.ObservedUtc;
+                            p = rawParsed != null && rawParsed.PacketId == definition.Id ? rawParsed : PacketCodec.ParseAt(data, definition, route.Offset);
+                            plan = RuntimeDecodePlan(definition.Id);
+                            cfg = plan.Settings;
+                        }
                     }
-                    if (route.Definition == null) parseError = route.Reason;
                     else
                     {
-                        definition = route.Definition;
-                        packetCount = PacketCountersFor(definition.Id);
+                        p = Protocol.Parse(data, cfg);
+                        packetCount = PacketCountersFor("legacy-apid-" + p.Apid);
                         packetCount.Received++;
                         packetCount.LastMatch=stamp.ObservedUtc;
-                        p = rawParsed != null && rawParsed.PacketId == definition.Id ? rawParsed : PacketCodec.ParseAt(data, definition, route.Offset);
-                        plan = RuntimeDecodePlan(definition.Id);
-                        cfg = plan.Settings;
                     }
                 }
-                else
-                {
-                    p = Protocol.Parse(data, cfg);
-                    packetCount = PacketCountersFor("legacy-apid-" + p.Apid);
-                    packetCount.Received++;
-                    packetCount.LastMatch=stamp.ObservedUtc;
-                }
-            }
-            catch (ArgumentException ex) { parseError = ex.Message; }
+                catch (ArgumentException ex) { parseError = ex.Message; }
 
-            if (parseError != null)
-            {
-                PacketRoute rejectedRoute = null;
-                if (definition == null)
-                    rejectedRoute = NativeDecoder ? route ?? PacketCodec.Resolve(data, ip, RuntimeRouteCandidates(data, false))
-                        : PacketCodec.Resolve(data, ip, LegacyStatisticsDefinitions());
-                bool unrecognized = rejectedRoute != null && rejectedRoute.Definition == null && !rejectedRoute.Ambiguous &&
-                    !(rejectedRoute.Offset >= 0 && data.Length - rejectedRoute.Offset < 16);
-                if (!unrecognized)
-                    BreakJudgmentContinuity(ip, definition != null ? definition.Id : rejectedRoute != null && rejectedRoute.Definition != null ? rejectedRoute.Definition.Id : "");
-                if (!NativeDecoder && rejectedRoute.Definition != null)
+                if (parseError != null)
                 {
-                    packetCount = PacketCountersFor(rejectedRoute.Definition.Id);
-                    packetCount.Received++;
-                    packetCount.LastMatch=stamp.ObservedUtc;
-                }
-                if (packetCount != null)
-                {
-                    packetCount.Invalid++;
-                    packetCount.LastOutcome=parseError;
-                }
-                Invalid++; src.Invalid++;
-                RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, parseError, definition, !unrecognized, NativeDecoder ? route ?? rejectedRoute : null);
-                string rejection = unrecognized ? "SPP未识别（信息，不告警）：" + parseError : parseError;
-                lastDatagramInfo = new { length = data.Length, time = receiveTime, result = rejection };
-                if (stamp.DataSeconds >= rejectionWindowEnd)
-                {
-                    rejectionWindowEnd = stamp.DataSeconds + 5;
-                    recentRejectionMessages.Clear();
-                }
-                // Keep all counters and raw records. Bound synchronous run-log writes when invalid packets alternate.
-                if (recentRejectionMessages.Count < 32 && recentRejectionMessages.Add(parseError))
-                    Note(unrecognized ? "info" : "warn", rejection, false);
-                return;
-            }
-            src.LastValid = DateTime.UtcNow; src.OfflineConditionActive = false;
-            string key = ip + ":" + p.Apid + (NativeDecoder ? ":" + p.PacketId : "");
-            SequenceTracker tracker;
-            if (!sequences.TryGetValue(key, out tracker)) sequences[key] = tracker = new SequenceTracker();
-            int disposition = tracker.Accept(p.Sequence);
-            packetCount.LastSequence = p.Sequence;
-            if (disposition == 1)
-            {
-                Duplicates++; src.Duplicates++; packetCount.Duplicates++;
-                packetCount.LastOutcome="帧计数重复，已跳过解码";
-                lastDatagramInfo = new { length = data.Length, time = receiveTime, result = packetCount.LastOutcome };
-                RecordAlarm("warn", "重复帧", "帧计数重复，已忽略：APID=" + p.Apid + "，计数=" + p.Sequence, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
-                return;
-            }
-            if (tracker.Reset)
-            {
-                OutOfOrder++; src.OutOfOrder++; packetCount.OutOfOrder++;
-                packetCount.LastResyncFrom = tracker.Previous; packetCount.LastResyncTo = p.Sequence; packetCount.LastResyncAt = BeijingTime.Now;
-                string message = "帧计数回退或大幅跳变，已重新同步并继续解码：APID=" + p.Apid + "，原计数=" + tracker.Previous + "，当前计数=" + p.Sequence;
-                bool newOrderAlarm = RecordAlarm("warn", "计数重同步", message, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
-                if (newOrderAlarm) Note("warn", message, false);
-                BreakJudgmentContinuity(ip, NativeDecoder ? p.PacketId : "legacy-apid-" + p.Apid);
-            }
-            if (tracker.Lost > 0)
-            {
-                BreakJudgmentContinuity(ip, NativeDecoder ? p.PacketId : "legacy-apid-" + p.Apid);
-                Lost += tracker.Lost; src.Lost += tracker.Lost;
-                string message = "帧计数不连续：APID=" + p.Apid + "，疑似缺失" + tracker.Lost + "帧（非已确认网络丢包）";
-                bool newLossAlarm = RecordAlarm("warn", "疑似缺帧", message, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
-                if (newLossAlarm) Note("warn", message, false);
-                if (Config.EnableLossAlarm && tracker.Lost >= Config.LossAlarmFrames) src.LossLatched = newLossAlarm || alarms.HasPending(ip, "疑似缺帧");
-            }
-            Accepted++; src.Accepted++; packetCount.Accepted++;
-            bool validPacket = p.ChecksumVerified && String.IsNullOrEmpty(p.Warning);
-            if (validPacket)
-            {
-                packetCount.LastValidFrame=stamp.ObservedUtc;
-                RecordPacketFreshness(NativeDecoder ? definition.Id : "legacy-apid-" + p.Apid, ip);
-            }
-            string outcome = validPacket ? "SPP已识别；校验通过" : !String.IsNullOrEmpty(p.Warning) ? p.Warning : "SPP校验待核实";
-            lastDatagramInfo = new { length = data.Length, time = receiveTime, result = outcome };
-            bool decode = (cfg.MappingConfirmed || simulated) && validPacket && (NativeDecoder || p.Apid == cfg.ParameterApid);
-            if (!String.IsNullOrEmpty(p.Warning)) RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, p.Warning, definition, resolved: route);
-            if (validPacket)
-            {
-                lastPacket = data;
-                packetInfo = new { apid = p.Apid, sequence = p.Sequence, datagramLength = data.Length, sppOffset = p.Offset, sppLength = p.Length,
-                    checksum = "通过", decoding = decode, warning = p.Warning, packetId = p.PacketId, packetName = p.PacketName, time = receiveTime };
-            }
-            packetCount.LastOutcome = !validPacket ? p.Warning ?? "校验未通过" : "有效新帧，未启用参数解码";
-            if (decode)
-            {
-                if (plan == null) EnsureRuntimeIndexes();
-                var fields = plan == null ? runtimeLegacyFields : plan.Fields;
-                var changedParameters = plan == null ? runtimeLegacyChanged : plan.Changed;
-                var stream = fields.Length == 0 ? null : EngineeringStream(ip);
-                List<string> invalidFields = null;
-                bool updatedParameters = false;
-                DateTime now = stamp.ObservedUtc;
-                double observed = stamp.DataSeconds, dataTime = Demo ? replayCaptureMs / 1000 : observed;
-                string timeUtc = BeijingTime.Iso(now);
-                string packetEventId = Guid.NewGuid().ToString("N");
-                long displayRevision = fields.Length == 0 ? 0 : Interlocked.Increment(ref liveReadingRevision);
-                foreach (Parameter def in fields)
-                {
-                    Reading reading = Protocol.Decode(data, p, def, cfg, now);
-                    reading.DisplayRevision = displayRevision;
-                    Values[def.Id] = reading;
-                    reading.SourceIP = ip; reading.SourcePort = sourcePort; reading.PacketEventId = packetEventId;
-                    RecordEngineering(stream, reading, observed, dataTime, timeUtc);
-                    if (reading.Status != "有效")
+                    PacketRoute rejectedRoute = null;
+                    if (definition == null)
+                        rejectedRoute = NativeDecoder ? route ?? PacketCodec.Resolve(data, ip, RuntimeRouteCandidates(data, false))
+                            : PacketCodec.Resolve(data, ip, LegacyStatisticsDefinitions());
+                    bool unrecognized = rejectedRoute != null && rejectedRoute.Definition == null && !rejectedRoute.Ambiguous &&
+                        !(rejectedRoute.Offset >= 0 && data.Length - rejectedRoute.Offset < 16);
+                    if (!unrecognized)
+                        BreakJudgmentContinuity(ip, definition != null ? definition.Id : rejectedRoute != null && rejectedRoute.Definition != null ? rejectedRoute.Definition.Id : "");
+                    if (!NativeDecoder && rejectedRoute.Definition != null)
                     {
-                        if (invalidFields == null) invalidFields = new List<string>();
-                        if (invalidFields.Count < 8) invalidFields.Add(def.Code + "：" + reading.Diagnostic);
+                        packetCount = PacketCountersFor(rejectedRoute.Definition.Id);
+                        packetCount.Received++;
+                        packetCount.LastMatch=stamp.ObservedUtc;
                     }
-                    else updatedParameters = true;
+                    if (packetCount != null)
+                    {
+                        packetCount.Invalid++;
+                        packetCount.LastOutcome=parseError;
+                    }
+                    if (historyRecord != null)
+                    {
+                        var failedDefinition = definition ?? (rejectedRoute == null ? null : rejectedRoute.Definition);
+                        if (failedDefinition != null)
+                        {
+                            historyRecord.PacketId = failedDefinition.Id;
+                            historyRecord.PacketName = failedDefinition.Name;
+                            historyRecord.Apid = failedDefinition.Apid;
+                        }
+                        historyRecord.Status = unrecognized ? "UNRECOGNIZED" : "INVALID";
+                        historyRecord.Reason = parseError;
+                    }
+                    Invalid++; src.Invalid++;
+                    RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, parseError, definition, !unrecognized, NativeDecoder ? route ?? rejectedRoute : null);
+                    string rejection = unrecognized ? "SPP未识别（信息，不告警）：" + parseError : parseError;
+                    lastDatagramInfo = new { length = data.Length, time = receiveTime, result = rejection };
+                    if (stamp.DataSeconds >= rejectionWindowEnd)
+                    {
+                        rejectionWindowEnd = stamp.DataSeconds + 5;
+                        recentRejectionMessages.Clear();
+                    }
+                    // Keep all counters and raw records. Bound synchronous run-log writes when invalid packets alternate.
+                    if (recentRejectionMessages.Count < 32 && recentRejectionMessages.Add(parseError))
+                        Note(unrecognized ? "info" : "warn", rejection, false);
+                    return;
                 }
-                if (updatedParameters) packetCount.LastParameterUpdate=stamp.ObservedUtc;
-                packetCount.LastOutcome = invalidFields != null
-                    ? (updatedParameters ? "部分参数解码异常：" : "参数解码异常：") + invalidFields[0]
-                    : updatedParameters ? "参数已更新" : "未关联可解码参数";
-                if (invalidFields != null)
-                    RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, "参数解码异常：" + String.Join("；", invalidFields), definition, resolved: route);
-                EvaluateContinuous(ip, changedParameters);
+                src.LastValid = DateTime.UtcNow; src.OfflineConditionActive = false;
+                FillHistoryPacket(historyRecord, p);
+                if (historyRecord != null) historyRecord.Status = "VALID_NEW";
+                string key = ip + ":" + p.Apid + (NativeDecoder ? ":" + p.PacketId : "");
+                SequenceTracker tracker;
+                if (!sequences.TryGetValue(key, out tracker)) sequences[key] = tracker = new SequenceTracker();
+                int disposition = tracker.Accept(p.Sequence);
+                packetCount.LastSequence = p.Sequence;
+                if (disposition == 1)
+                {
+                    if (historyRecord != null) historyRecord.Status = "DUPLICATE";
+                    Duplicates++; src.Duplicates++; packetCount.Duplicates++;
+                    packetCount.LastOutcome="帧计数重复，已跳过解码";
+                    lastDatagramInfo = new { length = data.Length, time = receiveTime, result = packetCount.LastOutcome };
+                    RecordAlarm("warn", "重复帧", "帧计数重复，已忽略：APID=" + p.Apid + "，计数=" + p.Sequence, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
+                    return;
+                }
+                if (tracker.Reset)
+                {
+                    OutOfOrder++; src.OutOfOrder++; packetCount.OutOfOrder++;
+                    packetCount.LastResyncFrom = tracker.Previous; packetCount.LastResyncTo = p.Sequence; packetCount.LastResyncAt = BeijingTime.Now;
+                    string message = "帧计数回退或大幅跳变，已重新同步并继续解码：APID=" + p.Apid + "，原计数=" + tracker.Previous + "，当前计数=" + p.Sequence;
+                    if (historyRecord != null) historyRecord.Reason = message;
+                    bool newOrderAlarm = RecordAlarm("warn", "计数重同步", message, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
+                    if (newOrderAlarm) Note("warn", message, false);
+                    BreakJudgmentContinuity(ip, NativeDecoder ? p.PacketId : "legacy-apid-" + p.Apid);
+                }
+                if (tracker.Lost > 0)
+                {
+                    BreakJudgmentContinuity(ip, NativeDecoder ? p.PacketId : "legacy-apid-" + p.Apid);
+                    Lost += tracker.Lost; src.Lost += tracker.Lost;
+                    string message = "帧计数不连续：APID=" + p.Apid + "，疑似缺失" + tracker.Lost + "帧（非已确认网络丢包）";
+                    bool newLossAlarm = RecordAlarm("warn", "疑似缺帧", message, ip, p.PacketName ?? ("APID " + p.Apid), p.Apid, p.Sequence, null, captureFrame, p.PacketId ?? "legacy");
+                    if (newLossAlarm) Note("warn", message, false);
+                    if (Config.EnableLossAlarm && tracker.Lost >= Config.LossAlarmFrames) src.LossLatched = newLossAlarm || alarms.HasPending(ip, "疑似缺帧");
+                }
+                Accepted++; src.Accepted++; packetCount.Accepted++;
+                bool validPacket = p.ChecksumVerified && String.IsNullOrEmpty(p.Warning);
+                if (historyRecord != null && !validPacket)
+                {
+                    historyRecord.Status = "UNVERIFIED";
+                    historyRecord.Reason = p.Warning ?? "";
+                }
+                if (validPacket)
+                {
+                    packetCount.LastValidFrame=stamp.ObservedUtc;
+                    RecordPacketFreshness(NativeDecoder ? definition.Id : "legacy-apid-" + p.Apid, ip);
+                }
+                string outcome = validPacket ? "SPP已识别；校验通过" : !String.IsNullOrEmpty(p.Warning) ? p.Warning : "SPP校验待核实";
+                lastDatagramInfo = new { length = data.Length, time = receiveTime, result = outcome };
+                bool decode = (cfg.MappingConfirmed || simulated) && validPacket && (NativeDecoder || p.Apid == cfg.ParameterApid);
+                if (!String.IsNullOrEmpty(p.Warning)) RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, p.Warning, definition, resolved: route);
+                if (validPacket)
+                {
+                    lastPacket = data;
+                    packetInfo = new { apid = p.Apid, sequence = p.Sequence, datagramLength = data.Length, sppOffset = p.Offset, sppLength = p.Length,
+                        checksum = "通过", decoding = decode, warning = p.Warning, packetId = p.PacketId, packetName = p.PacketName, time = receiveTime };
+                }
+                packetCount.LastOutcome = !validPacket ? p.Warning ?? "校验未通过" : "有效新帧，未启用参数解码";
+                if (decode)
+                {
+                    if (plan == null) EnsureRuntimeIndexes();
+                    var fields = plan == null ? runtimeLegacyFields : plan.Fields;
+                    var changedParameters = plan == null ? runtimeLegacyChanged : plan.Changed;
+                    var stream = fields.Length == 0 ? null : EngineeringStream(ip);
+                    List<string> invalidFields = null;
+                    bool updatedParameters = false;
+                    DateTime now = stamp.ObservedUtc;
+                    double observed = stamp.DataSeconds, dataTime = Demo ? replayCaptureMs / 1000 : observed;
+                    string timeUtc = BeijingTime.Iso(now);
+                    if (historyRecord != null && fields.Length > 0) historySamples = new HistoryValue[fields.Length];
+                    string packetEventId = historyRecord == null ? Guid.NewGuid().ToString("N") : historyRecord.Id;
+                    long displayRevision = fields.Length == 0 ? 0 : Interlocked.Increment(ref liveReadingRevision);
+                    foreach (Parameter def in fields)
+                    {
+                        Reading reading = Protocol.Decode(data, p, def, cfg, now);
+                        reading.DisplayRevision = displayRevision;
+                        Values[def.Id] = reading;
+                        reading.SourceIP = ip; reading.SourcePort = sourcePort; reading.PacketEventId = packetEventId;
+                        RecordEngineering(stream, reading, observed, dataTime, timeUtc);
+                        if (historySamples != null) historySamples[historySampleCount++] = HistorySample(reading);
+                        if (reading.Status != "有效")
+                        {
+                            if (invalidFields == null) invalidFields = new List<string>();
+                            if (invalidFields.Count < 8) invalidFields.Add(def.Code + "：" + reading.Diagnostic);
+                        }
+                        else updatedParameters = true;
+                    }
+                    if (updatedParameters) packetCount.LastParameterUpdate=stamp.ObservedUtc;
+                    packetCount.LastOutcome = invalidFields != null
+                        ? (updatedParameters ? "部分参数解码异常：" : "参数解码异常：") + invalidFields[0]
+                        : updatedParameters ? "参数已更新" : "未关联可解码参数";
+                    if (invalidFields != null)
+                        RecordAbnormal(lastDatagram, ip, simulated, sourcePort, captureFrame, "参数解码异常：" + String.Join("；", invalidFields), definition, resolved: route);
+                    EvaluateContinuous(ip, changedParameters);
+                }
             }
+            catch (Exception ex)
+            {
+                if (historyRecord != null) { historyRecord.Reason = ex.Message; historyRecord.Status = "PROCESSING_ERROR"; }
+                throw;
+            }
+            finally { FinishHistoryPacket(historyRecord, historySamples, historySampleCount); }
         }
 
         private void CheckHealth(object state)

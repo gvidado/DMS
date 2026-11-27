@@ -1,4 +1,4 @@
-﻿param([string]$ReleaseExecutable = '')
+param([string]$ReleaseExecutable = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $versionText = [IO.File]::ReadAllText((Join-Path $projectRoot 'src/AssemblyInfo.cs'))
@@ -18,14 +18,16 @@ $files = [Collections.Generic.List[object]]::new()
 function Select-File([string]$path, [string]$relative) {
     if (Test-Path -LiteralPath $path -PathType Leaf) { $files.Add([pscustomobject]@{ File = (Get-Item -LiteralPath $path); Relative = $relative.Replace('\','/') }) }
 }
-foreach ($folder in @('web','native')) {
+foreach ($folder in @('web','native','database')) {
     $base = Join-Path $projectRoot $folder
     if (!(Test-Path -LiteralPath $base)) { continue }
-    Get-ChildItem -LiteralPath $base -File -Recurse | Where-Object { $_.Extension -notin @('.pyc','.bak','.tmp') -and $_.FullName -notlike '*\__pycache__\*' -and $_.FullName -notlike '*\历史根目录文件\*' -and $_.FullName -notlike '*\native\postgresql\*' } | ForEach-Object { Select-File $_.FullName $_.FullName.Substring($projectRoot.Length+1) }
+    Get-ChildItem -LiteralPath $base -File -Recurse | Where-Object { $_.Extension -notin @('.pyc','.bak','.tmp') -and $_.FullName -notlike '*\__pycache__\*' -and $_.FullName -notlike '*\历史根目录文件\*' } | ForEach-Object { Select-File $_.FullName $_.FullName.Substring($projectRoot.Length+1) }
 }
 foreach ($name in @('TelemetryMonitor.exe.config','启动服务器.cmd','本机预览.cmd','配置防火墙.ps1')) { Select-File (Join-Path $projectRoot $name) $name }
 foreach ($name in @('指令面板与自由布局说明.md','参数画面配置说明.md','V0.10.26更新说明.md','V0.10.25更新说明.md','V0.10.24更新说明.md','V0.10.23更新说明.md','V0.10.22更新说明.md','V0.10.21更新说明.md','V0.10.20更新说明.md','V0.10.19更新说明.md','V0.10.18更新说明.md','V0.10.17更新说明.md','V0.10.16接收计数重同步修复说明.md','V0.10.15XML指令导入更新说明.md','V0.10.13更新说明.md','V0.10.12更新说明.md','V0.10.11更新说明.md','V0.10.10更新说明.md')) { Select-File (Join-Path $projectRoot ('说明/'+$name)) ('说明/'+$name) }
-Select-File (Join-Path $projectRoot 'tools/清理运行记录.ps1') 'tools/清理运行记录.ps1'
+foreach ($name in @('清理运行记录.ps1','初始化历史数据库.ps1','启动PostgreSQL18.ps1')) {
+    Select-File (Join-Path $projectRoot ('tools/'+$name)) ('tools/'+$name)
+}
 Select-File $ReleaseExecutable 'TelemetryMonitor.exe'
 $currentNotes = '说明/V'+$releaseVersion+'更新说明.md'
 if (!$files.Exists([Predicate[object]]{param($item) $item.Relative -eq $currentNotes})) { Select-File (Join-Path $projectRoot $currentNotes) $currentNotes }
@@ -52,7 +54,7 @@ $instructions = '数据判读系统 V'+$releaseVersion+"`r`n`r`n"+[IO.File]::Rea
 
 干净离线包：解压到新的空目录。默认组播224.10.2.24、UDP端口30008、来源192.168.1.111～192.168.1.113。解码、SPP、判读、指令和序列配置均为空，不含账号或现场数据；首次在本机网页创建管理员。
 
-当前版本无需数据库，保留文件判读存档。不安装、连接或清理已有PostgreSQL服务。
+历史库使用 PostgreSQL。新部署默认关闭全量采集和数据库写入。可在网页的「系统配置 → 历史存储配置」启用。升级保留已有独立归档目录和数据库。
 '@
 function Write-Package([string]$path, $items, [string]$prefix) {
     $stream=[IO.File]::Open($path,[IO.FileMode]::Create)
@@ -64,5 +66,5 @@ function Write-Package([string]$path, $items, [string]$prefix) {
     Write-Output $path
 }
 Write-Package (Join-Path $offlineDir ('自动判读系统_v'+$releaseVersion+'_干净离线包.zip')) $cleanFiles '自动判读系统/'
-$updateFiles=@($files | Where-Object { $_.Relative -match '^(web|native|说明)/|^tools/清理运行记录.ps1$' -or $_.Relative -in @('TelemetryMonitor.exe','TelemetryMonitor.exe.config','启动服务器.cmd','本机预览.cmd','配置防火墙.ps1') })
+$updateFiles=@($files | Where-Object { $_.Relative -match '^(web|native|database|说明)/|^tools/(清理运行记录|初始化历史数据库|启动PostgreSQL18)\.ps1$' -or $_.Relative -in @('TelemetryMonitor.exe','TelemetryMonitor.exe.config','启动服务器.cmd','本机预览.cmd','配置防火墙.ps1') })
 Write-Package (Join-Path $upgradeDir ('自动判读系统_v'+$releaseVersion+'_程序更新包.zip')) $updateFiles ''

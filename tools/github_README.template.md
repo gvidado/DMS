@@ -2,7 +2,7 @@
 
 面向分系统测试与半实物仿真的离线数据接收、遥测解码、自动判读和序列任务系统。
 
-**当前版本：V{{VERSION}}** · Windows 10 · 浏览器内网访问 · 无需数据库
+**当前版本：V{{VERSION}}** · Windows 10 · 浏览器内网访问 · 可选 PostgreSQL 历史库
 
 [下载最新版本](https://github.com/gvidado/DMS/releases/latest) · [版本记录](CHANGELOG.md) · [使用说明书](https://github.com/gvidado/DMS/releases/download/v{{VERSION}}/DMS-v{{MANUAL_VERSION}}-user-manual.docx) · [问题反馈](https://github.com/gvidado/DMS/issues)
 
@@ -20,6 +20,7 @@
 | 数据显示 | 多画面实时参数、独立SPP原包监视、判读显示、接收统计、发送监视、判读存档 |
 | 系统配置 | UDP与组播、遥测Excel导入、SPP配置、参数映射、常态化规则、共享变量、TC绑定 |
 | 本地检验 | PCAPNG文件检验、异常原包导出、1至5倍速演示、本机真实UDP回放 |
+| 历史查询 | PostgreSQL 历史遥测、通信与指令查询、按 SPP 包导出 Excel、全量 JSONL 数据底座 |
 | 指令控制 | BC/PSS/KC/YKE/YKM/ZK指令库、Excel/BIN/XML/CSV导入、发送预览、UDP发送、自由布局指令面板 |
 | 序列任务 | Excel导入与转换、逐行修正、序列执行与判读、多任务独立运行、超时诊断、结果导出 |
 | 账号管理 | 管理员与用户、个人参数画面及指令面板配置 |
@@ -87,7 +88,7 @@ EndResultRegion
 
 干净包默认组播 `224.10.2.24`、UDP目的端口 `30008`、来源白名单 `192.168.1.111` 至 `.113`。遥测、SPP、规则、指令库和序列均为空，无预置账号和试验数据。
 
-程序使用.NET Framework 4.x。发送抓包监视等功能需要在目标机器安装Npcap；它不随本仓库重新分发。只运行已发布的软件不需要安装Node.js、Python、Excel或数据库。
+程序使用.NET Framework 4.x。发送抓包监视等功能需要在目标机器安装Npcap；它不随本仓库重新分发。运行已发布的软件无需安装 Node.js、Python 或 Excel。启用历史数据库时需配置独立的 PostgreSQL 实例。部署与启用步骤见[版本说明](说明/V{{VERSION}}更新说明.md)。
 
 升级前停止旧程序，将升级包覆盖到原目录，保留 `config`、`data` 和 `logs`，重新启动并按 `Ctrl+F5` 刷新网页。
 
@@ -121,7 +122,7 @@ docs/            使用说明书和演示截图
 ## 当前边界
 
 - 软件本体完全离线运行；GitHub用于源码维护和版本分发。
-- V0.10.22起移除了PostgreSQL及全量遥测历史数据库功能，保留文件判读存档和运行所需短期缓存。
+- V1.0.0 恢复 PostgreSQL 历史查询。可按试验、时间、SPP、参数或指令查询，按包导出 Excel，并导出全量 JSONL 数据集。判读结果继续走现有文件存档。
 - 本版为基于明确规则的判读系统。服务端保留DSH兼容接口；独立开发中的DSH/Agent插件不混入本次本体源码快照和正式安装包，待单独验证后再发布。
 - 原包及最近发送等暂存数据有数量和生命周期限制，不能代替永久全量抓包。
 - 模型推理不参与UDP实时接收和确定性判读时序。

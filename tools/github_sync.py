@@ -67,8 +67,13 @@ def checked_zip(path,prefix,exe,web):
         for name in names:
             if not name.startswith(prefix):raise RuntimeError('Unexpected package root')
             rel=name[len(prefix):];parts=Path(rel).parts
-            if any(p in ('data','logs','test-output','.git','备份','提供材料','database','postgresql','__pycache__') for p in parts):raise RuntimeError('Excluded deployment content in package: '+rel)
+            if any(p in ('data','logs','test-output','.git','备份','提供材料','__pycache__') for p in parts):raise RuntimeError('Excluded deployment content in package: '+rel)
             if rel.lower().endswith(('.bak','.pcap','.pcapng','.bin','.jsonl','.hst.gz','.key','.pem')):raise RuntimeError('Excluded attachment in package: '+rel)
+            if 'database' in parts and rel not in ('database/initialize-history.sql','database/history-schema-v1.sql'):
+                raise RuntimeError('Unexpected database content: '+rel)
+            if 'postgresql' in parts and not (rel.startswith('native/postgresql/') and len(parts)==3 and
+                    (parts[2].endswith('.dll') or parts[2].startswith('LICENSE') or parts[2] in ('commandlinetools_3rd_party_licenses.txt','server_license.txt','SOURCE.txt'))):
+                raise RuntimeError('Unexpected PostgreSQL content: '+rel)
         if digest(archive.read(prefix+'TelemetryMonitor.exe'))!=digest(exe.read_bytes()):raise RuntimeError('Executable differs from current build')
         for file in web.iterdir():
             if file.is_file() and digest(archive.read(prefix+'web/'+file.name))!=digest(file.read_bytes()):raise RuntimeError('Web resource differs: '+file.name)
@@ -79,6 +84,9 @@ def checked_zip(path,prefix,exe,web):
             if defaults['parameters.json'] or defaults['decoder.json']['Catalog']['Parameters'] or defaults['decoder.json']['Packets']:raise RuntimeError('Imported telemetry in clean package')
             for n,k in [('continuous-rules.json','Rules'),('tc-bindings.json','Bindings'),('sequences.json','Sequences'),('observed-commands.json','Commands')]:
                 if defaults[n][k]:raise RuntimeError('Imported library in clean package: '+n)
+            history=defaults.get('history-storage.json')
+            if history and (history.get('DatabaseEnabled') or history.get('ArchiveEnabled') or history.get('EncryptedPassword') or history.get('ArchiveDirectory')):
+                raise RuntimeError('Existing history settings in clean package')
             return defaults
         if any(n.startswith('config/') for n in names):raise RuntimeError('Upgrade must preserve现场config')
     return None
@@ -99,12 +107,13 @@ def prepare(project,repo,include_dsh=False,release_executable=None):
     for folder,extensions in [('src',{'.cs'}),('web',{'.html','.css','.js','.svg','.png','.woff','.woff2'})]:
         for file in sorted((project/folder).rglob('*')):
             if file.is_file() and file.suffix.lower() in extensions:copy(file.relative_to(project).as_posix(),file)
+    for name in ['database/initialize-history.sql','database/history-schema-v1.sql']:copy(name,project/name)
     for name in ['build.ps1','TelemetryMonitor.exe.config','本机预览.cmd','启动服务器.cmd','配置防火墙.ps1']:copy(name,project/name)
     if (project/'AGENTS.md').exists():copy('AGENTS.md',project/'AGENTS.md')
     skipped=[]
     for file in sorted((project/'tools').iterdir()):
         if not file.is_file() or file.suffix not in ('.py','.ps1','.cs','.mjs','.md'):continue
-        if file.name.startswith(('history_','History','generate_manual','beautify_manual','初始化历史数据库','启动PostgreSQL')):continue
+        if file.name.startswith(('history_','History','generate_manual','beautify_manual')):continue
         content=file.read_text('utf-8-sig')
         if file.suffix in ('.py','.mjs','.cs') and re.search(r'(?i)[cdef]:[\\/]',content):
             skipped.append(file.name);continue
@@ -117,7 +126,8 @@ def prepare(project,repo,include_dsh=False,release_executable=None):
             if file.is_file() and not any(p in ('dist','node_modules','.git') for p in rel.parts) and file.suffix in ('.js','.mjs','.json','.md','.yml','.ps1'):
                 copy('dsh-plugin/'+rel.as_posix(),file)
     for name,value in defaults.items():put('config.example/'+name,(json.dumps(value,ensure_ascii=False,indent=2)+'\n').encode('utf-8'))
-    for file in sorted((project/'说明').glob('V0.10.*说明.md')):
+    notes_path=project/'说明'/('V'+v+'更新说明.md')
+    for file in sorted(set((project/'说明').glob('V0.10.*说明.md')) | {notes_path}):
         copy('说明/'+file.name,file)
     # Avoid historical manuals, user materials and the local migration document.
     template=(project/'tools/github_README.template.md').read_text('utf-8')
@@ -140,7 +150,7 @@ def prepare(project,repo,include_dsh=False,release_executable=None):
     sums=''.join(a['sha256']+'  '+a['name']+'\n' for a in assets);(release/'SHA256SUMS.txt').write_text(sums,encoding='utf-8')
     assets.append({'name':'SHA256SUMS.txt','size':(release/'SHA256SUMS.txt').stat().st_size,'sha256':digest((release/'SHA256SUMS.txt').read_bytes())})
     notes=(project/'说明'/('V'+v+'更新说明.md')).read_text('utf-8-sig')
-    notes+='\n\n## 下载与使用\n\n- windows-offline.zip：新部署，空配置，不含现场账号或数据。\n- windows-upgrade.zip：覆盖更新，保留config、data、logs。\n- user-manual.docx：完整使用说明和语法示例。\n- SHA256SUMS.txt：下载校验。\n\n本版不依赖数据库。安装Npcap后可使用相应抓包监视能力。升级前停止程序，覆盖后重启并Ctrl+F5刷新网页。\n'
+    notes+='\n\n## 下载与使用\n\n- windows-offline.zip：新部署，空配置，不含现场账号或数据。\n- windows-upgrade.zip：覆盖更新，保留config、data、logs。\n- user-manual.docx：完整使用说明和语法示例。\n- SHA256SUMS.txt：下载校验。\n\nPostgreSQL 用于可选的历史数据库功能。安装Npcap后可使用相应抓包监视能力。升级前停止程序，覆盖后重启并Ctrl+F5刷新网页。\n'
     if manual_version!=v:notes+='\n随附完整使用说明适用V'+manual_version+'，后续变化以本次版本说明为准。\n'
     (release/'release-notes.md').write_text(notes,encoding='utf-8')
     put('release/current.json',(json.dumps({'version':v,'tag':'v'+v,'manualVersion':manual_version,'assets':assets},ensure_ascii=False,indent=2)+'\n').encode('utf-8'))

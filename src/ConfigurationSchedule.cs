@@ -239,6 +239,10 @@ namespace TelemetryMonitor
             catch(IOException ex){liveMonitor.Note("warn","配置草稿清理失败："+ex.Message,false);}
             catch(UnauthorizedAccessException ex){liveMonitor.Note("warn","配置草稿清理失败："+ex.Message,false);}
         }
+        private void ApplyScheduledHistoryConfiguration()
+        {
+            if(historyStorage!=null&&historyStorage.ApplyPending(true))liveMonitor.HistoryRecordingChanged();
+        }
         private void ConfigurationScheduleTick(object ignored)
         {
             if(!running)return;
@@ -248,6 +252,7 @@ namespace TelemetryMonitor
                 if(!running)return;bool due=configurationClock.Elapsed.TotalSeconds>=configurationNextTick;
                 if(due)do{configurationNextTick+=ConfigurationIntervalSeconds;}while(configurationNextTick<=configurationClock.Elapsed.TotalSeconds);
                 bool active=liveMonitor.ConfigurationMonitoringActive;
+                if(due||!active)ApplyScheduledHistoryConfiguration();
                 if(configurationDirty.Count==0){if(due&&configurationEditor!=null)RetireConfigurationEditor();return;}
                 if(active&&!due)return;
                 if(!active&&!due&&configurationError.Length>0)return;
@@ -276,6 +281,7 @@ namespace TelemetryMonitor
         private bool ApplyIdleConfiguration()
         {
             if(liveMonitor.ConfigurationMonitoringActive)return true;
+            ApplyScheduledHistoryConfiguration();
             return configurationDirty.Count==0||TryApplyConfiguration();
         }
     }

@@ -37,9 +37,13 @@ def main():
         check(config('continuous-rules.json')['Rules']==[] and config('tc-bindings.json')['Bindings']==[]
               and config('observed-commands.json')['Commands']==[] and config('sequences.json')['Sequences']==[],
               'rules, TC bindings, command library and sequences are empty')
-        check(not (root/'config/history-storage.json').exists() and not (root/'database').exists()
-              and not (root/'native/postgresql').exists() and not (root/'tools/初始化历史数据库.ps1').exists(),
-              'clean package contains no database configuration, SQL scripts or PostgreSQL client')
+        history=config('history-storage.json')
+        check(history['ArchiveEnabled'] is False and history['DatabaseEnabled'] is False
+              and not history['EncryptedPassword'] and not history['ArchiveDirectory'],
+              'clean package starts with history collection disabled and has no connection credentials')
+        check(all((root/name).is_file() for name in ('database/initialize-history.sql','database/history-schema-v1.sql',
+              'native/postgresql/libpq.dll','tools/初始化历史数据库.ps1')),
+              'clean package includes the history database client, initialization SQL and setup tool')
         port=free_port();c=Client(port)
         process=subprocess.Popen([str(root/'TelemetryMonitor.exe'),'--local','--root',str(root),'--web-port',str(port)],
             stdout=(base/'startup.log').open('wb'),stderr=subprocess.STDOUT,creationflags=subprocess.CREATE_NO_WINDOW)
@@ -58,9 +62,9 @@ def main():
             check(c.call('/api/abnormal-records')['total']==0
                   and c.call('/api/judgment-archives')['history']['total']==0,
                   'cold start has no abnormal records or judgment file archives')
-            state=c.call('/api/history/status',expected=404)
-            check('error' in state and not (root/'data/history').exists(),
-                  'database endpoints are removed and cold start creates no full telemetry archive')
+            state=c.call('/api/history/status')
+            check(not state['databaseEnabled'] and not state['enabled'] and not (root/'data/history').exists(),
+                  'cold start exposes history status without connecting or creating a full telemetry archive')
             check(c.call('/api/state')['mode']=='stopped','fresh deployment starts with reception stopped')
         except Exception:
             print((base/'startup.log').read_text(encoding='utf-8',errors='replace')[-2000:]);raise

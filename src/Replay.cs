@@ -69,7 +69,7 @@ namespace TelemetryMonitor
                 if (NetworkSender.IsSending) throw new InvalidOperationException("请先停止网络回放发送；内部预览不能作为网络接收验证");
                 if (replaySource == null) throw new ArgumentException("请先选择pcapng演示文件，或在文件检验中设为演示数据源");
                 if (NativeDecoder && !decoder.Packets.Any(p => p.Enabled||p.MonitorRaw)) throw new ArgumentException("请先启用至少一个SPP包的遥测解码或原包监测");
-                Reset(); recordedRunAlarms.Clear(); packetStatisticsMode = "demo"; Demo = true; replayCancel.Reset(); replayState = "playing"; replayError = "";
+                Reset(); recordedRunAlarms.Clear(); BeginHistorySession("INTERNAL_PREVIEW"); packetStatisticsMode = "demo"; Demo = true; replayCancel.Reset(); replayState = "playing"; replayError = "";
                 replayFrames = replayDelivered = replaySkipped = replayBytes = 0; replayCaptureMs = replayLagMs = 0;
                 replayClock = new Stopwatch(); long epoch = generation; ReplaySource source = replaySource;
                 replayAnchorRealMs = replayAnchorCaptureMs = 0;
@@ -114,6 +114,7 @@ namespace TelemetryMonitor
                     if(judgmentRunning)ProcessJudgmentEvent(new JudgmentEvent{Timer=true});
                     Demo = false; StopJudgmentCore("解码预览结束，判读已自动停止");
                     if (replayDelivered == 0) throw new ArgumentException("文件没有可回放的完整IPv4 UDP报文");
+                    EndHistorySession("文件演示完成");
                     replayState = "completed"; replayBytes = source.Size; Note("info", "pcapng演示完成，保留最后参数值；可重新从头播放。");
                 }
             }
@@ -123,6 +124,7 @@ namespace TelemetryMonitor
                 {
                     if (generation != epoch) return;
                     Demo = false; StopJudgmentCore("解码预览异常，判读已自动停止"); if (replayClock != null) replayClock.Stop(); replayState = "failed";
+                    EndHistorySession("文件演示中断");
                     replayError = ex is ArgumentException || ex is IOException ? ex.Message : "演示读取失败：" + ex.GetType().Name;
                     Error = replayError; RecordAlarm("error", "演示异常", replayError, mode: "文件演示"); Note("error", replayError, false);
                 }

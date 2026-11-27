@@ -1,0 +1,13 @@
+{
+  "SchemaVersion": 1,
+  "Revision": "5c306b56e93c4dc8976d5b8f6c0519e7",
+  "ArchiveDirectory": "",
+  "Host": "127.0.0.1",
+  "Database": "telemetry_history",
+  "Username": "telemetry_ingest",
+  "EncryptedPassword": "",
+  "Port": 5432,
+  "FlushMilliseconds": 1000,
+  "DatabaseEnabled": false,
+  "ArchiveEnabled": false
+}
